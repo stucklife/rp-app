@@ -9,6 +9,7 @@ import UniverseSelector from './components/UniverseSelector'
 import MessageList from './components/MessageList'
 import MessageInput from './components/MessageInput'
 import CharacterSelector from './components/CharacterSelector'
+import ReferencePanel from './components/ReferencePanel'
 
 const CHAR_KEY = 'rp.currentCharacter'
 
@@ -21,18 +22,17 @@ function App() {
   const { characters, create: createCharacter } = charactersApi
 
   const [characterId, setCharacterId] = useState(() => localStorage.getItem(CHAR_KEY) || null)
+  const [panelOpen, setPanelOpen] = useState(false)
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState(null)
 
-  // Сохранение выбранного персонажа
   useEffect(() => {
     if (characterId) localStorage.setItem(CHAR_KEY, characterId)
     else localStorage.removeItem(CHAR_KEY)
   }, [characterId])
 
-  // Сброс персонажа при смене пользователя, если он не принадлежит ему
   useEffect(() => {
     if (!characterId) return
     const c = characters.find((x) => x.id === characterId)
@@ -42,7 +42,6 @@ function App() {
     }
   }, [user, characters, characterId])
 
-  // Загрузка сообщений при смене универсума
   useEffect(() => {
     loadMessages()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -92,19 +91,17 @@ function App() {
     setSending(false)
   }
 
-  // Пока универсумы загружаются
   if (universesApi.loading) {
     return (
-      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">
+      <div className="min-h-dvh bg-slate-900 text-white flex items-center justify-center">
         Загрузка...
       </div>
     )
   }
 
-  // Нет ни одного универсума
   if (!universeId) {
     return (
-      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-6">
+      <div className="min-h-dvh bg-slate-900 text-white flex items-center justify-center p-6">
         <div className="max-w-md text-center space-y-4">
           <h1 className="text-2xl font-bold">🌌 Создай свой первый мир</h1>
           <p className="text-slate-400 text-sm">
@@ -117,10 +114,16 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white flex flex-col h-screen">
+    <div className="bg-slate-900 text-white flex flex-col h-dvh">
       <header className="bg-slate-950 border-b border-slate-800 px-3 py-2 flex justify-between items-center flex-shrink-0 gap-2">
         <div className="flex items-center gap-1 min-w-0">
-          <div className="font-bold text-base sm:text-lg flex-shrink-0">🎲</div>
+          <button
+            onClick={() => setPanelOpen(true)}
+            className="text-slate-400 hover:text-white text-lg w-8 h-8 flex items-center justify-center rounded hover:bg-slate-800 flex-shrink-0"
+            title="Справочники"
+          >
+            📚
+          </button>
           <UniverseSelector
             universes={universes}
             current={currentUniverse}
@@ -153,11 +156,16 @@ function App() {
         </div>
         <MessageInput onSend={handleSend} disabled={sending} />
       </div>
+
+      <ReferencePanel
+        open={panelOpen}
+        onClose={() => setPanelOpen(false)}
+        charactersApi={charactersApi}
+      />
     </div>
   )
 }
 
-// Компонент для создания первого универсума
 function CreateFirstUniverse({ onCreate, onSelect }) {
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
