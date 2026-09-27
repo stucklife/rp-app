@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import Drawer from './Drawer'
 import CharactersPanel from './CharactersPanel'
+import LocationsPanel from './LocationsPanel'
 
 const TABS = [
   { id: 'characters', label: 'Персонажи', icon: '👤' },
-  // позже: locations, global_events, game_time
+  { id: 'locations',  label: 'Локации',   icon: '📍' },
 ]
 
-export default function ReferencePanel({ open, onClose, charactersApi }) {
+export default function ReferencePanel({ open, onClose, charactersApi, locationsApi }) {
   const [tab, setTab] = useState('characters')
 
   return (
@@ -31,6 +32,7 @@ export default function ReferencePanel({ open, onClose, charactersApi }) {
 
         <div className="flex-1 overflow-hidden">
           {tab === 'characters' && <CharactersPanel api={charactersApi} />}
+          {tab === 'locations'  && <LocationsPanel  api={locationsApi}  />}
         </div>
       </div>
     </Drawer>

@@ -10,16 +10,30 @@ export default function Drawer({ open, onClose, title, children }) {
     return () => document.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
-  if (!open) return null
-
+  // На мобиле — оверлей поверх всего
+  // На десктопе (md+) — часть flex-потока, выезжает слева, сжимает контент
   return (
     <>
-      <div
-        className="fixed inset-0 bg-black/60 z-40"
-        onClick={onClose}
-      />
+      {/* Затемнение только на мобиле */}
+      {open && (
+        <div
+          className="fixed inset-0 bg-black/60 z-40 md:hidden"
+          onClick={onClose}
+        />
+      )}
 
-      <div className="fixed top-0 right-0 h-dvh w-full sm:w-[480px] bg-slate-900 border-l border-slate-800 z-50 flex flex-col shadow-2xl">
+      <aside
+        className={`
+          bg-slate-900 border-slate-800 flex flex-col shadow-2xl
+          fixed top-0 left-0 h-dvh w-full z-50 border-r
+          transition-transform duration-200
+          md:relative md:h-auto md:z-auto md:flex-shrink-0
+          ${open
+            ? 'translate-x-0 md:w-[420px]'
+            : '-translate-x-full md:translate-x-0 md:w-0 md:border-r-0 md:overflow-hidden'
+          }
+        `}
+      >
         <header className="flex items-center justify-between px-4 py-3 border-b border-slate-800 flex-shrink-0">
           <h2 className="font-bold">{title}</h2>
           <button
@@ -33,7 +47,7 @@ export default function Drawer({ open, onClose, title, children }) {
         <div className="flex-1 overflow-hidden">
           {children}
         </div>
-      </div>
+      </aside>
     </>
   )
 }
