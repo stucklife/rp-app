@@ -12,6 +12,8 @@ import MessageList from './components/MessageList'
 import MessageInput from './components/MessageInput'
 import ReferencePanel from './components/ReferencePanel'
 import { useMessages } from './lib/messages'
+import { roll } from './lib/dice'
+import DiceModal from './components/DiceModal'
 import ToastContainer from './components/ToastContainer'
 import { useNotificationSettings } from './lib/notifications'
 import { useRealtime } from './lib/realtime'
@@ -38,6 +40,7 @@ function App() {
    const [characterId, setCharacterId] = useState(() => localStorage.getItem(CHAR_KEY) || null)
   const [panelOpen, setPanelOpen] = useState(false)
   const [replyTo, setReplyTo] = useState(null)
+  const [diceModalOpen, setDiceModalOpen] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState(null)
 
@@ -62,7 +65,7 @@ function App() {
     universeId,
     currentUser: user,
     callbacks: {
-            onMessage: (msg) => {
+      onMessage: (msg) => {
         // Обновляем ленту, если это наша активная сцена
         if (msg.event_id === activeSceneId) {
           messagesApi.applyInsert(msg)
@@ -73,14 +76,17 @@ function App() {
 
         const scene = scenes.find((s) => s.id === msg.event_id)
         const isOtherScene = msg.event_id !== activeSceneId
+        const isDiceRoll = msg.kind === 'dice_roll'
 
         addToast({
-          type: 'message',
-          icon: '💬',
+          type: isDiceRoll ? 'dice' : 'message',
+          icon: isDiceRoll ? '🎲' : '💬',
           title: msg.character_name || msg.author,
-          preview: isOtherScene && scene
-            ? `📖 ${scene.title}: ${msg.content?.slice(0, 60) || ''}`
-            : msg.content?.slice(0, 80) || '',
+          preview: isDiceRoll
+            ? `${msg.payload?.formula || ''} = ${msg.payload?.total ?? ''}`
+            : (isOtherScene && scene
+              ? `📖 ${scene.title}: ${msg.content?.slice(0, 60) || ''}`
+              : msg.content?.slice(0, 80) || ''),
           onAction: () => setActiveSceneId(msg.event_id),
           duration: 8000,
         })
@@ -174,7 +180,65 @@ function App() {
       function handleQuoteMessage(message) {
     setReplyTo(message)
   }
+  // Отправка броска кубов — как особое сообщение
+  async function handleDiceRoll(result) {
+    if (!activeSceneId) return
+    if (!result) {
+      // Без аргумента — открываем модалку
+      setDiceModalOpen(true)
+      return
+    }
 
+    // Slash-команда: пришёл { formula }
+    if (result.formula && !result.dice) {
+      const rolled = roll(result.formula)
+      if (!rolled) {
+        setError('Неверная формула: ' + result.formula)
+        return
+      }
+      result = { description: '', difficulty: null, ...rolled }
+    }
+
+    setSending(true)
+    setError(null)
+
+    const character = characters.find((c) => c.id === characterId)
+
+    const { data, error } = await supabase
+      .from('messages')
+      .insert({
+        event_id: activeSceneId,
+        author: user,
+        kind: 'dice_roll',
+        character_id: character?.id || null,
+        character_name: character?.name || null,
+        content: result.description || null,
+        payload: {
+          formula: String(result.formula || ''),
+          dice: Array.isArray(result.dice) ? result.dice : [],
+          modifier: Number(result.modifier) || 0,
+          total: Number(result.total) || 0,
+          difficulty: result.difficulty != null ? Number(result.difficulty) : null,
+          groups: Array.isArray(result.groups) ? result.groups : [],
+        },
+        reply_to_id: replyTo?.id || null,
+      })
+      .select(`
+        *,
+        reply_to:reply_to_id ( id, author, character_id, character_name, content, deleted_at )
+      `)
+      .single()
+
+    if (error) {
+      setError(error.message)
+    } else if (data) {
+      messagesApi.applyInsert(data)
+      scenesApi.touch(activeSceneId)
+      setReplyTo(null)
+      setDiceModalOpen(false)
+    }
+    setSending(false)
+  }
   if (universesApi.loading || scenesApi.loading) {
     return (
       <div className="min-h-dvh bg-slate-900 text-white flex items-center justify-center">
@@ -210,6 +274,12 @@ function App() {
         notificationsApi={notificationsApi}
       />
       <ToastContainer />
+            <DiceModal
+        open={diceModalOpen}
+        onClose={() => setDiceModalOpen(false)}
+        onSubmit={handleDiceRoll}
+        characterName={characters.find((c) => c.id === characterId)?.name}
+      />
 
       <div className="flex-1 flex flex-col min-w-0">
         <header className="bg-slate-950 border-b border-slate-800 flex-shrink-0">
@@ -289,6 +359,7 @@ function App() {
               characters={characters}
               characterId={characterId}
               onCharacterChange={setCharacterId}
+              onDiceRoll={handleDiceRoll}
             />
           </div>
         )}

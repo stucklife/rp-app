@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { AUTHOR_COLORS, AUTHOR_LABELS, AUTHOR_BG } from '../lib/constants'
 import MessageQuote from './MessageQuote'
 import CharacterPicker from './CharacterPicker'
+import DiceRollMessage from './DiceRollMessage'
 
 function formatTime(iso) {
   const d = new Date(iso)
@@ -61,6 +62,19 @@ export default function MessageBubble({
     return (
       <div className="text-center text-slate-500 italic text-sm py-2 px-4">
         — {content} —
+      </div>
+    )
+  }
+    if (kind === 'dice_roll') {
+    return (
+      <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
+        <div
+          onClick={openMenu}
+          onContextMenu={openMenu}
+          className={`max-w-[90%] sm:max-w-[75%] rounded-2xl border border-slate-700 bg-slate-800/60 px-3 py-2 cursor-pointer hover:border-slate-600`}
+        >
+          <DiceRollMessage message={message} characters={characters} />
+        </div>
       </div>
     )
   }

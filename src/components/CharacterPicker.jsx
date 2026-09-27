@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 
 export default function CharacterPicker({ characters, value, onChange, placeholder = '— от себя —', compact = false }) {
   const [open, setOpen] = useState(false)
+  const [direction, setDirection] = useState('down') // 'up' | 'down'
   const wrapRef = useRef(null)
 
   useEffect(() => {
@@ -12,14 +13,32 @@ export default function CharacterPicker({ characters, value, onChange, placehold
     return () => document.removeEventListener('mousedown', onClick)
   }, [])
 
+  // При открытии — определяем, куда открывать
+  function handleToggle() {
+    if (!open && wrapRef.current) {
+      const rect = wrapRef.current.getBoundingClientRect()
+      const spaceAbove = rect.top
+      const spaceBelow = window.innerHeight - rect.bottom
+      // Если снизу меньше 240px, а сверху больше — открываем вверх
+      // Иначе — вниз (по умолчанию)
+      setDirection(spaceBelow < 240 && spaceAbove > spaceBelow ? 'up' : 'down')
+    }
+    setOpen((v) => !v)
+  }
+
   const current = characters.find((c) => c.id === value)
   const label = current ? current.name : placeholder
+
+  const menuClasses =
+    direction === 'up'
+      ? 'absolute z-50 bottom-full mb-1 left-0'
+      : 'absolute z-50 top-full mt-1 left-0'
 
   return (
     <div ref={wrapRef} className="relative">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={handleToggle}
         className={
           compact
             ? 'text-xs text-slate-400 hover:text-white px-2 py-1 rounded hover:bg-slate-800 flex items-center gap-1 max-w-full'
@@ -31,7 +50,9 @@ export default function CharacterPicker({ characters, value, onChange, placehold
       </button>
 
       {open && (
-        <div className="absolute z-50 bottom-full mb-1 left-0 bg-slate-800 border border-slate-700 rounded-lg shadow-xl min-w-[180px] max-h-64 overflow-y-auto">
+        <div
+          className={`${menuClasses} bg-slate-800 border border-slate-700 rounded-lg shadow-xl min-w-[180px] max-h-64 overflow-y-auto`}
+        >
           <button
             type="button"
             onClick={() => {

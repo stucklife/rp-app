@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { AUTHOR_LABELS } from '../lib/constants'
+import { parseFormula } from '../lib/dice'
 import CharacterPicker from './CharacterPicker'
 
 export default function MessageInput({
@@ -10,13 +11,28 @@ export default function MessageInput({
   characters,
   characterId,
   onCharacterChange,
+  onDiceRoll,
 }) {
   const [text, setText] = useState('')
 
   const handleSubmit = (e) => {
-    e.preventDefault()
+    if (e) e.preventDefault()
     const trimmed = text.trim()
     if (!trimmed) return
+
+    // Slash-команды: /roll 2d6+3 или /r 2d6+3
+    const rollMatch = trimmed.match(/^\/(?:roll|r)\s+(.+)$/i)
+    if (rollMatch) {
+      const formula = rollMatch[1].trim()
+      if (parseFormula(formula)) {
+        onDiceRoll?.({ formula })
+        setText('')
+        return
+      }
+      // Формула неверная — не отправляем, пусть пользователь поправит
+      return
+    }
+
     onSend(trimmed)
     setText('')
   }
@@ -83,10 +99,22 @@ export default function MessageInput({
             style={{ minHeight: '38px' }}
           />
         </div>
+
+        <button
+          type="button"
+          onClick={() => onDiceRoll?.()}
+          disabled={disabled}
+          className="bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white rounded-lg px-3 py-2 text-lg transition self-end"
+          style={{ minHeight: '38px' }}
+          title="Бросить кубы"
+        >
+          🎲
+        </button>
+
         <button
           type="submit"
           disabled={disabled || !text.trim()}
-          className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-4 py-2 text-sm font-medium transition self-end mb-0"
+          className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-4 py-2 text-sm font-medium transition self-end"
           style={{ minHeight: '38px' }}
         >
           ➤
