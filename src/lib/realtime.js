@@ -20,10 +20,16 @@ export function useRealtime({ universeId, currentUser, callbacks }) {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
         (payload) => {
-          console.log('[realtime] message INSERT:', payload.new)
           const msg = payload.new
           if (msg.author === currentUser) return
           cbRef.current.onMessage?.(msg)
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages' },
+        (payload) => {
+          cbRef.current.onMessageUpdate?.(payload.new)
         }
       )
       // --- Сцены (events) ---

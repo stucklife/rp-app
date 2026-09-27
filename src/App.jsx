@@ -10,8 +10,8 @@ import UniverseSelector from './components/UniverseSelector'
 import SceneSelector from './components/SceneSelector'
 import MessageList from './components/MessageList'
 import MessageInput from './components/MessageInput'
-import CharacterSelector from './components/CharacterSelector'
 import ReferencePanel from './components/ReferencePanel'
+import { useMessages } from './lib/messages'
 import ToastContainer from './components/ToastContainer'
 import { useNotificationSettings } from './lib/notifications'
 import { useRealtime } from './lib/realtime'
@@ -35,12 +35,14 @@ function App() {
 
   const notificationsApi = useNotificationSettings(user)
 
-  const [characterId, setCharacterId] = useState(() => localStorage.getItem(CHAR_KEY) || null)
+   const [characterId, setCharacterId] = useState(() => localStorage.getItem(CHAR_KEY) || null)
   const [panelOpen, setPanelOpen] = useState(false)
-  const [messages, setMessages] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [replyTo, setReplyTo] = useState(null)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState(null)
+
+  const messagesApi = useMessages(activeSceneId)
+  const { messages, loading } = messagesApi
 
   useEffect(() => {
     if (characterId) localStorage.setItem(CHAR_KEY, characterId)
@@ -55,43 +57,15 @@ function App() {
       setCharacterId(null)
     }
   }, [user, characters, characterId])
-
-  // Загрузка сообщений при смене сцены
-  useEffect(() => {
-    loadMessages()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSceneId])
-
-  async function loadMessages() {
-    if (!activeSceneId) {
-      setMessages([])
-      setLoading(false)
-      return
-    }
-    setLoading(true)
-    const { data, error } = await supabase
-      .from('messages')
-      .select('*')
-      .eq('event_id', activeSceneId)
-      .is('deleted_at', null)
-      .order('created_at', { ascending: true })
-
-    if (error) setError(error.message)
-    else setMessages(data || [])
-    setLoading(false)
-  }
-  
+ 
   useRealtime({
     universeId,
     currentUser: user,
     callbacks: {
-      onMessage: (msg) => {
+            onMessage: (msg) => {
         // Обновляем ленту, если это наша активная сцена
         if (msg.event_id === activeSceneId) {
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === msg.id)) return prev
-            return [...prev, msg]
-          })
+          messagesApi.applyInsert(msg)
         }
 
         // Уведомление
@@ -110,6 +84,15 @@ function App() {
           onAction: () => setActiveSceneId(msg.event_id),
           duration: 8000,
         })
+      },
+
+      onMessageUpdate: (msg) => {
+        // Редактирование или удаление (soft delete — тоже UPDATE)
+        if (msg.deleted_at) {
+          messagesApi.applyDelete(msg.id)
+        } else {
+          messagesApi.applyUpdate(msg)
+        }
       },
 
       onScene: ({ action, row }) => {
@@ -156,19 +139,40 @@ function App() {
         event_id: activeSceneId,
         author: user,
         kind: 'chat',
+        character_id: character?.id || null,
         character_name: character?.name || null,
         content: text,
+        reply_to_id: replyTo?.id || null,
       })
-      .select()
+      .select(`
+        *,
+        reply_to:reply_to_id ( id, author, character_id, character_name, content, deleted_at )
+      `)
       .single()
 
     if (error) {
       setError(error.message)
     } else if (data) {
-      setMessages((prev) => [...prev, data])
-      scenesApi.touch(activeSceneId) // поднять сцену вверх в списке
+      messagesApi.applyInsert(data)
+      scenesApi.touch(activeSceneId)
+      setReplyTo(null)
     }
     setSending(false)
+  }
+
+  async function handleEditMessage(id, patch) {
+    const { error } = await messagesApi.editMessage(id, patch)
+    if (error) setError(error.message)
+  }
+
+  async function handleDeleteMessage(id) {
+    if (!confirm('Удалить сообщение?')) return
+    const { error } = await messagesApi.deleteMessage(id)
+    if (error) setError(error.message)
+  }
+
+      function handleQuoteMessage(message) {
+    setReplyTo(message)
   }
 
   if (universesApi.loading || scenesApi.loading) {
@@ -263,22 +267,29 @@ function App() {
               </div>
             </div>
           ) : (
-            <MessageList messages={messages} currentUser={user} loading={loading} />
+              <MessageList
+              messages={messages}
+              currentUser={user}
+              characters={characters}
+              loading={loading}
+              onEditMessage={handleEditMessage}
+              onDeleteMessage={handleDeleteMessage}
+              onQuoteMessage={handleQuoteMessage}
+            />
           )}
         </main>
 
         {activeSceneId && (
           <div className="bg-slate-950 border-t border-slate-800">
-            <div className="px-2 pt-1">
-              <CharacterSelector
-                currentUser={user}
-                characters={characters}
-                value={characterId}
-                onChange={setCharacterId}
-                onCreate={createCharacter}
-              />
-            </div>
-            <MessageInput onSend={handleSend} disabled={sending} />
+            <MessageInput
+              onSend={handleSend}
+              disabled={sending}
+              replyTo={replyTo}
+              onCancelReply={() => setReplyTo(null)}
+              characters={characters}
+              characterId={characterId}
+              onCharacterChange={setCharacterId}
+            />
           </div>
         )}
       </div>
