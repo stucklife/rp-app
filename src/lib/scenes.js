@@ -128,28 +128,34 @@ export function useScenes(universeId) {
 }
 
 // Хук активной сцены — хранится в localStorage
-export function useActiveScene(universeId, scenes) {
+export function useActiveScene(universeId, scenes, scenesLoading) {
   const [activeId, setActiveId] = useState(() => localStorage.getItem(ACTIVE_KEY))
 
-  // Сохранение в localStorage
+  // Сохраняем при изменении
   useEffect(() => {
     if (activeId) localStorage.setItem(ACTIVE_KEY, activeId)
     else localStorage.removeItem(ACTIVE_KEY)
   }, [activeId])
 
-  // Если активной нет или она из другого универсума — выбрать первую активную
+  // Логика выбора активной сцены
   useEffect(() => {
+    // Пока сцены загружаются — не трогаем activeId
+    if (scenesLoading) return
+
+    // Сцены загружены, но их нет
     if (!scenes || scenes.length === 0) {
       if (activeId) setActiveId(null)
       return
     }
+
+    // Если активная сцена существует в списке — оставляем
     const exists = scenes.find((s) => s.id === activeId)
     if (exists) return
 
-    // Выбираем первую активную (не archived), если есть, иначе первую вообще
+    // Иначе — выбираем первую активную, или первую вообще
     const firstActive = scenes.find((s) => s.status === 'active') || scenes[0]
     setActiveId(firstActive.id)
-  }, [scenes, universeId, activeId])
+  }, [scenes, scenesLoading, universeId, activeId])
 
   const active = scenes?.find((s) => s.id === activeId) || null
 

@@ -12,6 +12,10 @@ import MessageList from './components/MessageList'
 import MessageInput from './components/MessageInput'
 import CharacterSelector from './components/CharacterSelector'
 import ReferencePanel from './components/ReferencePanel'
+import ToastContainer from './components/ToastContainer'
+import { useNotificationSettings } from './lib/notifications'
+import { useRealtime } from './lib/realtime'
+import { addToast } from './lib/toastStore'
 
 const CHAR_KEY = 'rp.currentCharacter'
 
@@ -26,8 +30,10 @@ function App() {
   const locationsApi = useLocations(universeId)
   const scenesApi = useScenes(universeId)
   const { scenes } = scenesApi
-  const { activeId: activeSceneId, setActiveId: setActiveSceneId, active: activeScene } =
-    useActiveScene(universeId, scenes)
+    const { activeId: activeSceneId, setActiveId: setActiveSceneId, active: activeScene } =
+    useActiveScene(universeId, scenes, scenesApi.loading)
+
+  const notificationsApi = useNotificationSettings(user)
 
   const [characterId, setCharacterId] = useState(() => localStorage.getItem(CHAR_KEY) || null)
   const [panelOpen, setPanelOpen] = useState(false)
@@ -74,6 +80,68 @@ function App() {
     else setMessages(data || [])
     setLoading(false)
   }
+  
+  useRealtime({
+    universeId,
+    currentUser: user,
+    callbacks: {
+      onMessage: (msg) => {
+        // Обновляем ленту, если это наша активная сцена
+        if (msg.event_id === activeSceneId) {
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === msg.id)) return prev
+            return [...prev, msg]
+          })
+        }
+
+        // Уведомление
+        if (!notificationsApi.shouldNotify({ type: 'messages', source: msg.author })) return
+
+        const scene = scenes.find((s) => s.id === msg.event_id)
+        const isOtherScene = msg.event_id !== activeSceneId
+
+        addToast({
+          type: 'message',
+          icon: '💬',
+          title: msg.character_name || msg.author,
+          preview: isOtherScene && scene
+            ? `📖 ${scene.title}: ${msg.content?.slice(0, 60) || ''}`
+            : msg.content?.slice(0, 80) || '',
+          onAction: () => setActiveSceneId(msg.event_id),
+          duration: 8000,
+        })
+      },
+
+      onScene: ({ action, row }) => {
+        if (action === 'insert') {
+          scenesApi.reload()
+          if (!notificationsApi.shouldNotify({ type: 'scenes', source: 'user1' })) return
+          addToast({
+            type: 'scene',
+            icon: '📖',
+            title: 'Создана новая сцена',
+            preview: row.title,
+            onAction: () => setActiveSceneId(row.id),
+            duration: 8000,
+          })
+        } else if (action === 'update') {
+          scenesApi.reload()
+        } else if (action === 'delete') {
+          scenesApi.reload()
+        }
+      },
+
+      onCharacter: () => {
+        charactersApi.reload()
+        if (!notificationsApi.shouldNotify({ type: 'references' })) return
+        // уведомления по персонажам пока не делаем превью — просто reload
+      },
+
+      onLocation: () => {
+        locationsApi.reload()
+      },
+    },
+  })
 
   async function handleSend(text) {
     if (!activeSceneId) return
@@ -127,7 +195,7 @@ function App() {
 
   return (
     <div className="bg-slate-900 text-white flex h-dvh">
-      <ReferencePanel
+            <ReferencePanel
         open={panelOpen}
         onClose={() => setPanelOpen(false)}
         charactersApi={charactersApi}
@@ -135,33 +203,42 @@ function App() {
         scenesApi={scenesApi}
         activeSceneId={activeSceneId}
         onSelectScene={setActiveSceneId}
+        notificationsApi={notificationsApi}
       />
+      <ToastContainer />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="bg-slate-950 border-b border-slate-800 px-3 py-2 flex justify-between items-center flex-shrink-0 gap-2">
-          <div className="flex items-center gap-1 min-w-0">
-            <button
-              onClick={() => setPanelOpen((v) => !v)}
-              className="text-slate-400 hover:text-white text-lg w-8 h-8 flex items-center justify-center rounded hover:bg-slate-800 flex-shrink-0"
-              title="Пространство"
-            >
-              📚
-            </button>
-            <UniverseSelector
-              universes={universes}
-              current={currentUniverse}
-              onSelect={universesApi.select}
-              onCreate={universesApi.create}
-            />
-            <SceneSelector
-              scenes={scenes}
-              active={activeScene}
-              onSelect={setActiveSceneId}
-              onNew={() => setPanelOpen(true)}
-            />
-          </div>
-          <UserSelector current={user} onChange={setUser} />
-        </header>
+        <header className="bg-slate-950 border-b border-slate-800 flex-shrink-0">
+  {/* Строка 1: кнопка панели + универсум + пользователь */}
+  <div className="px-3 py-2 flex justify-between items-center gap-2">
+    <div className="flex items-center gap-1 min-w-0">
+      <button
+        onClick={() => setPanelOpen((v) => !v)}
+        className="text-slate-400 hover:text-white text-lg w-8 h-8 flex items-center justify-center rounded hover:bg-slate-800 flex-shrink-0"
+        title="Пространство"
+      >
+        📚
+      </button>
+      <UniverseSelector
+        universes={universes}
+        current={currentUniverse}
+        onSelect={universesApi.select}
+        onCreate={universesApi.create}
+      />
+    </div>
+    <UserSelector current={user} onChange={setUser} />
+  </div>
+
+  {/* Строка 2: сцена */}
+  <div className="px-3 pb-2 flex items-center gap-1 min-w-0 border-t border-slate-900 pt-1.5">
+    <SceneSelector
+      scenes={scenes}
+      active={activeScene}
+      onSelect={setActiveSceneId}
+      onNew={() => setPanelOpen(true)}
+    />
+  </div>
+</header>
 
         {error && (
           <div className="bg-red-900/50 border-b border-red-800 text-red-200 text-sm px-3 py-2 flex-shrink-0">

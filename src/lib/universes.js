@@ -23,17 +23,21 @@ export function useUniverses() {
       return
     }
 
-    setUniverses(data || [])
+    const list = data || []
+    setUniverses(list)
 
-    // если текущий не задан или его больше нет — выбрать первый
-    const ids = (data || []).map((u) => u.id)
-    if (!currentId || !ids.includes(currentId)) {
-      if (ids.length > 0) {
+    const stored = localStorage.getItem(KEY)
+
+    if (list.length === 0) {
+      setCurrentId(null)
+      localStorage.removeItem(KEY)
+    } else {
+      const ids = list.map((u) => u.id)
+      if (!stored || !ids.includes(stored)) {
         setCurrentId(ids[0])
         localStorage.setItem(KEY, ids[0])
       } else {
-        setCurrentId(null)
-        localStorage.removeItem(KEY)
+        setCurrentId(stored)
       }
     }
 

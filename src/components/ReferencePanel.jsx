@@ -3,6 +3,7 @@ import Drawer from './Drawer'
 import CharactersPanel from './CharactersPanel'
 import LocationsPanel from './LocationsPanel'
 import ScenesPanel from './ScenesPanel'
+import NotificationSettings from './NotificationSettings'
 
 const REFERENCE_TABS = [
   { id: 'characters', label: 'Персонажи', icon: '👤' },
@@ -17,6 +18,7 @@ export default function ReferencePanel({
   scenesApi,
   activeSceneId,
   onSelectScene,
+  notificationsApi,
 }) {
   const [section, setSection] = useState('scenes') // scenes | references
   const [tab, setTab] = useState('characters')
@@ -60,7 +62,7 @@ export default function ReferencePanel({
           </div>
         )}
 
-        {section === 'references' && (
+                {section === 'references' && (
           <div className="flex-1 flex flex-col overflow-hidden">
             <div className="flex gap-1 px-3 py-2 border-b border-slate-800 flex-shrink-0 overflow-x-auto">
               {REFERENCE_TABS.map((t) => (
@@ -84,6 +86,13 @@ export default function ReferencePanel({
             </div>
           </div>
         )}
+
+        <NotificationSettings
+          settings={notificationsApi.settings}
+          update={notificationsApi.update}
+          toggleType={notificationsApi.toggleType}
+          toggleSource={notificationsApi.toggleSource}
+        />
       </div>
     </Drawer>
   )
