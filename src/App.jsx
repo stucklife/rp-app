@@ -4,9 +4,10 @@ import { useCurrentUser } from './lib/user'
 import { useUniverses } from './lib/universes'
 import { useCharacters } from './lib/characters'
 import { useLocations } from './lib/locations'
-import { ACTIVE_EVENT_ID } from './lib/constants'
+import { useScenes, useActiveScene } from './lib/scenes'
 import UserSelector from './components/UserSelector'
 import UniverseSelector from './components/UniverseSelector'
+import SceneSelector from './components/SceneSelector'
 import MessageList from './components/MessageList'
 import MessageInput from './components/MessageInput'
 import CharacterSelector from './components/CharacterSelector'
@@ -19,11 +20,15 @@ function App() {
   const universesApi = useUniverses()
   const { currentId: universeId, universes, current: currentUniverse } = universesApi
 
-    const charactersApi = useCharacters(universeId)
+  const charactersApi = useCharacters(universeId)
   const { characters, create: createCharacter } = charactersApi
 
   const locationsApi = useLocations(universeId)
-  
+  const scenesApi = useScenes(universeId)
+  const { scenes } = scenesApi
+  const { activeId: activeSceneId, setActiveId: setActiveSceneId, active: activeScene } =
+    useActiveScene(universeId, scenes)
+
   const [characterId, setCharacterId] = useState(() => localStorage.getItem(CHAR_KEY) || null)
   const [panelOpen, setPanelOpen] = useState(false)
   const [messages, setMessages] = useState([])
@@ -45,13 +50,14 @@ function App() {
     }
   }, [user, characters, characterId])
 
+  // Загрузка сообщений при смене сцены
   useEffect(() => {
     loadMessages()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [universeId])
+  }, [activeSceneId])
 
   async function loadMessages() {
-    if (!universeId) {
+    if (!activeSceneId) {
       setMessages([])
       setLoading(false)
       return
@@ -59,9 +65,8 @@ function App() {
     setLoading(true)
     const { data, error } = await supabase
       .from('messages')
-      .select('*, events!inner(universe_id)')
-      .eq('events.universe_id', universeId)
-      .eq('event_id', ACTIVE_EVENT_ID)
+      .select('*')
+      .eq('event_id', activeSceneId)
       .is('deleted_at', null)
       .order('created_at', { ascending: true })
 
@@ -71,7 +76,7 @@ function App() {
   }
 
   async function handleSend(text) {
-    if (!universeId) return
+    if (!activeSceneId) return
     setSending(true)
     setError(null)
 
@@ -80,7 +85,7 @@ function App() {
     const { data, error } = await supabase
       .from('messages')
       .insert({
-        event_id: ACTIVE_EVENT_ID,
+        event_id: activeSceneId,
         author: user,
         kind: 'chat',
         character_name: character?.name || null,
@@ -89,12 +94,16 @@ function App() {
       .select()
       .single()
 
-    if (error) setError(error.message)
-    else if (data) setMessages((prev) => [...prev, data])
+    if (error) {
+      setError(error.message)
+    } else if (data) {
+      setMessages((prev) => [...prev, data])
+      scenesApi.touch(activeSceneId) // поднять сцену вверх в списке
+    }
     setSending(false)
   }
 
-  if (universesApi.loading) {
+  if (universesApi.loading || scenesApi.loading) {
     return (
       <div className="min-h-dvh bg-slate-900 text-white flex items-center justify-center">
         Загрузка...
@@ -116,13 +125,16 @@ function App() {
     )
   }
 
-    return (
+  return (
     <div className="bg-slate-900 text-white flex h-dvh">
       <ReferencePanel
         open={panelOpen}
         onClose={() => setPanelOpen(false)}
         charactersApi={charactersApi}
         locationsApi={locationsApi}
+        scenesApi={scenesApi}
+        activeSceneId={activeSceneId}
+        onSelectScene={setActiveSceneId}
       />
 
       <div className="flex-1 flex flex-col min-w-0">
@@ -131,7 +143,7 @@ function App() {
             <button
               onClick={() => setPanelOpen((v) => !v)}
               className="text-slate-400 hover:text-white text-lg w-8 h-8 flex items-center justify-center rounded hover:bg-slate-800 flex-shrink-0"
-              title="Справочники"
+              title="Пространство"
             >
               📚
             </button>
@@ -140,6 +152,12 @@ function App() {
               current={currentUniverse}
               onSelect={universesApi.select}
               onCreate={universesApi.create}
+            />
+            <SceneSelector
+              scenes={scenes}
+              active={activeScene}
+              onSelect={setActiveSceneId}
+              onNew={() => setPanelOpen(true)}
             />
           </div>
           <UserSelector current={user} onChange={setUser} />
@@ -152,21 +170,40 @@ function App() {
         )}
 
         <main className="flex-1 overflow-y-auto">
-          <MessageList messages={messages} currentUser={user} loading={loading} />
+          {!activeSceneId ? (
+            <div className="h-full flex items-center justify-center p-6 text-center">
+              <div className="max-w-md space-y-3">
+                <h2 className="text-xl font-bold">📖 Нет активной сцены</h2>
+                <p className="text-slate-400 text-sm">
+                  Создай первую сцену, чтобы начать играть. Каждая сцена — это отдельный диалог в конкретной локации.
+                </p>
+                <button
+                  onClick={() => setPanelOpen(true)}
+                  className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium"
+                >
+                  Открыть пространство
+                </button>
+              </div>
+            </div>
+          ) : (
+            <MessageList messages={messages} currentUser={user} loading={loading} />
+          )}
         </main>
 
-        <div className="bg-slate-950 border-t border-slate-800">
-          <div className="px-2 pt-1">
-            <CharacterSelector
-              currentUser={user}
-              characters={characters}
-              value={characterId}
-              onChange={setCharacterId}
-              onCreate={createCharacter}
-            />
+        {activeSceneId && (
+          <div className="bg-slate-950 border-t border-slate-800">
+            <div className="px-2 pt-1">
+              <CharacterSelector
+                currentUser={user}
+                characters={characters}
+                value={characterId}
+                onChange={setCharacterId}
+                onCreate={createCharacter}
+              />
+            </div>
+            <MessageInput onSend={handleSend} disabled={sending} />
           </div>
-          <MessageInput onSend={handleSend} disabled={sending} />
-        </div>
+        )}
       </div>
     </div>
   )

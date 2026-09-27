@@ -1,6 +1,3 @@
-// ID активного события — потом заменим на выбор из БД
-export const ACTIVE_EVENT_ID = '22222222-2222-2222-2222-222222222222'
-
 // Цвета авторов сообщений
 export const AUTHOR_COLORS = {
   user1:    'text-blue-400',
