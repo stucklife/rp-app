@@ -1,7 +1,195 @@
+import { useEffect, useState } from 'react'
+import { supabase } from './supabase'
+import { useCurrentUser } from './lib/user'
+import { useUniverses } from './lib/universes'
+import { useCharacters } from './lib/characters'
+import { ACTIVE_EVENT_ID } from './lib/constants'
+import UserSelector from './components/UserSelector'
+import UniverseSelector from './components/UniverseSelector'
+import MessageList from './components/MessageList'
+import MessageInput from './components/MessageInput'
+import CharacterSelector from './components/CharacterSelector'
+
+const CHAR_KEY = 'rp.currentCharacter'
+
 function App() {
+  const [user, setUser] = useCurrentUser()
+  const universesApi = useUniverses()
+  const { currentId: universeId, universes, current: currentUniverse } = universesApi
+
+  const charactersApi = useCharacters(universeId)
+  const { characters, create: createCharacter } = charactersApi
+
+  const [characterId, setCharacterId] = useState(() => localStorage.getItem(CHAR_KEY) || null)
+  const [messages, setMessages] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState(null)
+
+  // Сохранение выбранного персонажа
+  useEffect(() => {
+    if (characterId) localStorage.setItem(CHAR_KEY, characterId)
+    else localStorage.removeItem(CHAR_KEY)
+  }, [characterId])
+
+  // Сброс персонажа при смене пользователя, если он не принадлежит ему
+  useEffect(() => {
+    if (!characterId) return
+    const c = characters.find((x) => x.id === characterId)
+    if (!c) return
+    if (user !== 'narrator' && c.is_player && c.owner !== user) {
+      setCharacterId(null)
+    }
+  }, [user, characters, characterId])
+
+  // Загрузка сообщений при смене универсума
+  useEffect(() => {
+    loadMessages()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [universeId])
+
+  async function loadMessages() {
+    if (!universeId) {
+      setMessages([])
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*, events!inner(universe_id)')
+      .eq('events.universe_id', universeId)
+      .eq('event_id', ACTIVE_EVENT_ID)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true })
+
+    if (error) setError(error.message)
+    else setMessages(data || [])
+    setLoading(false)
+  }
+
+  async function handleSend(text) {
+    if (!universeId) return
+    setSending(true)
+    setError(null)
+
+    const character = characters.find((c) => c.id === characterId)
+
+    const { data, error } = await supabase
+      .from('messages')
+      .insert({
+        event_id: ACTIVE_EVENT_ID,
+        author: user,
+        kind: 'chat',
+        character_name: character?.name || null,
+        content: text,
+      })
+      .select()
+      .single()
+
+    if (error) setError(error.message)
+    else if (data) setMessages((prev) => [...prev, data])
+    setSending(false)
+  }
+
+  // Пока универсумы загружаются
+  if (universesApi.loading) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">
+        Загрузка...
+      </div>
+    )
+  }
+
+  // Нет ни одного универсума
+  if (!universeId) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-6">
+        <div className="max-w-md text-center space-y-4">
+          <h1 className="text-2xl font-bold">🌌 Создай свой первый мир</h1>
+          <p className="text-slate-400 text-sm">
+            Универсум — это отдельная вселенная со своими локациями, персонажами и историей.
+          </p>
+          <CreateFirstUniverse onCreate={universesApi.create} onSelect={universesApi.select} />
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="min-h-screen bg-slate-900 text-white p-8">
-      <h1 className="text-3xl font-bold">RP App работает 🎲</h1>
+    <div className="min-h-screen bg-slate-900 text-white flex flex-col h-screen">
+      <header className="bg-slate-950 border-b border-slate-800 px-3 py-2 flex justify-between items-center flex-shrink-0 gap-2">
+        <div className="flex items-center gap-1 min-w-0">
+          <div className="font-bold text-base sm:text-lg flex-shrink-0">🎲</div>
+          <UniverseSelector
+            universes={universes}
+            current={currentUniverse}
+            onSelect={universesApi.select}
+            onCreate={universesApi.create}
+          />
+        </div>
+        <UserSelector current={user} onChange={setUser} />
+      </header>
+
+      {error && (
+        <div className="bg-red-900/50 border-b border-red-800 text-red-200 text-sm px-3 py-2 flex-shrink-0">
+          {error}
+        </div>
+      )}
+
+      <main className="flex-1 overflow-y-auto">
+        <MessageList messages={messages} currentUser={user} loading={loading} />
+      </main>
+
+      <div className="bg-slate-950 border-t border-slate-800">
+        <div className="px-2 pt-1">
+          <CharacterSelector
+            currentUser={user}
+            characters={characters}
+            value={characterId}
+            onChange={setCharacterId}
+            onCreate={createCharacter}
+          />
+        </div>
+        <MessageInput onSend={handleSend} disabled={sending} />
+      </div>
+    </div>
+  )
+}
+
+// Компонент для создания первого универсума
+function CreateFirstUniverse({ onCreate, onSelect }) {
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function handle() {
+    if (!name.trim()) return
+    setBusy(true)
+    const { data, error } = await onCreate({ name })
+    setBusy(false)
+    if (error) {
+      alert('Ошибка: ' + error.message)
+      return
+    }
+    onSelect(data.id)
+  }
+
+  return (
+    <div className="space-y-2">
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && handle()}
+        placeholder="Название мира..."
+        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-slate-600"
+      />
+      <button
+        onClick={handle}
+        disabled={busy || !name.trim()}
+        className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white py-2 rounded-lg text-sm font-medium"
+      >
+        {busy ? 'Создание...' : 'Создать универсум'}
+      </button>
     </div>
   )
 }
