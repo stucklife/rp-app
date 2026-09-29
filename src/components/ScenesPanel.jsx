@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import SceneForm from './SceneForm'
 
-export default function ScenesPanel({ api, locations, activeId, onSelect }) {
+export default function ScenesPanel({ api, locations, gameTime, cursorX, activeId, onSelect, onGameTimeChanged }) {
   const { scenes, create, update, remove } = api
   const [search, setSearch] = useState('')
   const [showArchived, setShowArchived] = useState(false)
@@ -31,13 +31,20 @@ export default function ScenesPanel({ api, locations, activeId, onSelect }) {
         return
       }
       if (data?.id) onSelect(data.id)
+      onGameTimeChanged?.()
     } else {
-      await update(editing.scene.id, payload)
+      const { data, error } = await update(editing.scene.id, payload)
+      if (error) {
+        alert('Ошибка: ' + error.message)
+        return
+      }
+      onGameTimeChanged?.()
     }
     setEditing(null)
   }
 
   async function handleDelete() {
+    if (!editing?.scene?.id) return
     if (!confirm('Удалить сцену? Сообщения останутся в истории.')) return
     await remove(editing.scene.id)
     setEditing(null)
@@ -48,6 +55,8 @@ export default function ScenesPanel({ api, locations, activeId, onSelect }) {
       <SceneForm
         scene={editing.mode === 'edit' ? editing.scene : null}
         locations={locations}
+        gameTime={gameTime}
+        cursorX={cursorX}
         onSave={handleSave}
         onDelete={editing.mode === 'edit' ? handleDelete : null}
         onCancel={() => setEditing(null)}

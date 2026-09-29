@@ -57,7 +57,6 @@ export function useNotificationSettings(userId) {
 
   // Проверка: должен ли показываться toast
   function shouldNotify({ type, source }) {
-    console.log('[shouldNotify]', { type, source, settings })
     if (!settings.enabled) return false
     if (type && !settings.types[type]) return false
     if (source && !settings.sources[source]) return false

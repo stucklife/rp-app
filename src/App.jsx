@@ -12,12 +12,15 @@ import MessageList from './components/MessageList'
 import MessageInput from './components/MessageInput'
 import ReferencePanel from './components/ReferencePanel'
 import { useMessages } from './lib/messages'
+import { useGameTime } from './lib/gameTime'
+import { useCursor } from './lib/cursor'
 import { roll } from './lib/dice'
 import DiceModal from './components/DiceModal'
 import ToastContainer from './components/ToastContainer'
 import { useNotificationSettings } from './lib/notifications'
 import { useRealtime } from './lib/realtime'
 import { addToast } from './lib/toastStore'
+import ErrorBoundary from './components/ErrorBoundary'
 
 const CHAR_KEY = 'rp.currentCharacter'
 
@@ -31,6 +34,8 @@ function App() {
 
   const locationsApi = useLocations(universeId)
   const scenesApi = useScenes(universeId)
+  const gameTimeApi = useGameTime(universeId)
+  const [cursor, setCursor] = useCursor(user, universeId)
   const { scenes } = scenesApi
     const { activeId: activeSceneId, setActiveId: setActiveSceneId, active: activeScene } =
     useActiveScene(universeId, scenes, scenesApi.loading)
@@ -66,12 +71,13 @@ function App() {
     currentUser: user,
     callbacks: {
       onMessage: (msg) => {
-        // Обновляем ленту, если это наша активная сцена
+        // Всегда добавляем в ленту, если это наша сцена
         if (msg.event_id === activeSceneId) {
           messagesApi.applyInsert(msg)
         }
 
-        // Уведомление
+        // Toast — только для сообщений от других пользователей
+        if (msg.author === user) return
         if (!notificationsApi.shouldNotify({ type: 'messages', source: msg.author })) return
 
         const scene = scenes.find((s) => s.id === msg.event_id)
@@ -114,6 +120,7 @@ function App() {
             duration: 8000,
           })
         } else if (action === 'update') {
+          // Обновляем локально, без полной перезагрузки
           scenesApi.reload()
         } else if (action === 'delete') {
           scenesApi.reload()
@@ -239,7 +246,7 @@ function App() {
     }
     setSending(false)
   }
-  if (universesApi.loading || scenesApi.loading) {
+  if (universesApi.loading) {
     return (
       <div className="min-h-dvh bg-slate-900 text-white flex items-center justify-center">
         Загрузка...
@@ -263,12 +270,14 @@ function App() {
 
   return (
     <div className="bg-slate-900 text-white flex h-dvh">
-            <ReferencePanel
+      <ReferencePanel
         open={panelOpen}
         onClose={() => setPanelOpen(false)}
         charactersApi={charactersApi}
         locationsApi={locationsApi}
         scenesApi={scenesApi}
+        gameTimeApi={gameTimeApi}
+        cursorX={cursor}
         activeSceneId={activeSceneId}
         onSelectScene={setActiveSceneId}
         notificationsApi={notificationsApi}
@@ -337,21 +346,24 @@ function App() {
               </div>
             </div>
           ) : (
+            <ErrorBoundary>
               <MessageList
-              messages={messages}
-              currentUser={user}
-              characters={characters}
-              loading={loading}
-              onEditMessage={handleEditMessage}
-              onDeleteMessage={handleDeleteMessage}
-              onQuoteMessage={handleQuoteMessage}
-            />
+                messages={messages}
+                currentUser={user}
+                characters={characters}
+                loading={loading}
+                onEditMessage={handleEditMessage}
+                onDeleteMessage={handleDeleteMessage}
+                onQuoteMessage={handleQuoteMessage}
+              />
+            </ErrorBoundary>
           )}
         </main>
 
         {activeSceneId && (
           <div className="bg-slate-950 border-t border-slate-800">
             <MessageInput
+            
               onSend={handleSend}
               disabled={sending}
               replyTo={replyTo}

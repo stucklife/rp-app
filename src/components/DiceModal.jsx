@@ -189,7 +189,16 @@ export default function DiceModal({ open, onClose, onSubmit, characterName }) {
               <div className="mt-2 pt-2 border-t border-slate-700">
                 <div className="text-xs text-slate-400 mb-1">Результат</div>
                 <div className="font-mono text-sm">
-                  [{preview.dice.join(', ')}]
+                  {preview.groups && preview.groups.length > 0 ? (
+                    preview.groups.map((g, gi) => (
+                      <span key={gi}>
+                        {gi > 0 && <span className="text-slate-500"> {g.sign > 0 ? '+' : '−'} </span>}
+                        [{g.results.map((d) => Math.abs(d)).join(', ')}]
+                      </span>
+                    ))
+                  ) : (
+                    <>[{preview.dice.join(', ')}]</>
+                  )}
                   {preview.modifier !== 0 && ` ${preview.modifier > 0 ? '+' : ''}${preview.modifier}`}
                   {' = '}
                   <span className="text-blue-400 font-bold">{preview.total}</span>

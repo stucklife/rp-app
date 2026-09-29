@@ -3,6 +3,37 @@ import { supabase } from '../supabase'
 
 const ACTIVE_KEY = 'rp.activeScene'
 
+// Поиск или создание game_time по координатам
+async function findOrCreateGameTime(universeId, startX, endX, meta) {
+  const { data: existing } = await supabase
+    .from('game_time')
+    .select('*')
+    .eq('universe_id', universeId)
+    .eq('start_x', startX)
+    .eq('end_x', endX)
+    .is('deleted_at', null)
+    .maybeSingle()
+
+  if (existing) return { data: existing }
+
+  const { data, error } = await supabase
+    .from('game_time')
+    .insert({
+      universe_id: universeId,
+      start_x: startX,
+      end_x: endX,
+      start_date_text: meta?.start_date_text || null,
+      start_bc: meta?.start_bc || false,
+      end_date_text: meta?.end_date_text || null,
+      end_bc: meta?.end_bc || false,
+    })
+    .select()
+    .single()
+
+  if (error) return { error }
+  return { data }
+}
+
 // Хук для работы со сценами универсума
 export function useScenes(universeId) {
   const [scenes, setScenes] = useState([])
@@ -17,7 +48,6 @@ export function useScenes(universeId) {
     }
     setLoading(true)
 
-    // Сцены + связанные события + локация
     const { data, error } = await supabase
       .from('events')
       .select(`
@@ -40,25 +70,30 @@ export function useScenes(universeId) {
     load()
   }, [universeId])
 
-  // Создание — через RPC-функцию (сцена + событие атомарно)
+  // Создание — через RPC-функцию (сцена + событие + game_time атомарно)
   async function create(payload) {
     if (!universeId) return { error: { message: 'Универсум не выбран' } }
 
-    const { data, error } = await supabase.rpc('create_scene_with_event', {
+    const rpcPayload = {
       p_universe_id: universeId,
       p_title: payload.title,
       p_description: payload.description || null,
       p_location_id: payload.location_id || null,
       p_time_label: payload.time_label || null,
-      p_game_time_id: payload.game_time_id || null,
-    })
+      p_start_x: payload.start_x ?? 0,
+      p_end_x: payload.end_x ?? (payload.start_x ?? 0),
+      p_start_date_text: payload.start_date_text || null,
+      p_start_bc: payload.start_bc || false,
+      p_end_date_text: payload.end_date_text || null,
+      p_end_bc: payload.end_bc || false,
+    }
+    
+    const { data, error } = await supabase.rpc('create_scene_with_event', rpcPayload)
 
     if (error) return { error }
 
-    // RPC возвращает [{ scene_id, story_event_id }]
     const created = Array.isArray(data) ? data[0] : data
 
-    // Подгружаем созданную сцену со связями
     const { data: fullScene } = await supabase
       .from('events')
       .select(`
@@ -78,9 +113,41 @@ export function useScenes(universeId) {
   }
 
   async function update(id, patch) {
+    let game_time_id = patch.game_time_id
+
+    // Если переданы координаты — ищем/создаём game_time
+    if (patch.start_x !== undefined) {
+      const startX = patch.start_x ?? 0
+      const endX = patch.end_x ?? startX
+      const { data: gt, error: gtErr } = await findOrCreateGameTime(
+        universeId,
+        startX,
+        endX,
+        {
+          start_date_text: patch.start_date_text,
+          start_bc: patch.start_bc,
+          end_date_text: patch.end_date_text,
+          end_bc: patch.end_bc,
+        }
+      )
+      if (gtErr) return { error: gtErr }
+      game_time_id = gt.id
+    }
+
+    const eventPatch = {
+      title: patch.title,
+      description: patch.description,
+      location_id: patch.location_id,
+      time_label: patch.time_label,
+      status: patch.status,
+    }
+    if (game_time_id !== undefined) {
+      eventPatch.game_time_id = game_time_id
+    }
+
     const { data, error } = await supabase
       .from('events')
-      .update(patch)
+      .update(eventPatch)
       .eq('id', id)
       .select(`
         *,
@@ -107,13 +174,11 @@ export function useScenes(universeId) {
     return {}
   }
 
-  // Обновить время модификации сцены (вызывается при отправке сообщения)
   async function touch(id) {
     await supabase
       .from('events')
       .update({ updated_at: new Date().toISOString() })
       .eq('id', id)
-    // Пересортировываем список
     setScenes((prev) => {
       const next = [...prev]
       const idx = next.findIndex((s) => s.id === id)
@@ -131,28 +196,22 @@ export function useScenes(universeId) {
 export function useActiveScene(universeId, scenes, scenesLoading) {
   const [activeId, setActiveId] = useState(() => localStorage.getItem(ACTIVE_KEY))
 
-  // Сохраняем при изменении
   useEffect(() => {
     if (activeId) localStorage.setItem(ACTIVE_KEY, activeId)
     else localStorage.removeItem(ACTIVE_KEY)
   }, [activeId])
 
-  // Логика выбора активной сцены
   useEffect(() => {
-    // Пока сцены загружаются — не трогаем activeId
     if (scenesLoading) return
 
-    // Сцены загружены, но их нет
     if (!scenes || scenes.length === 0) {
       if (activeId) setActiveId(null)
       return
     }
 
-    // Если активная сцена существует в списке — оставляем
     const exists = scenes.find((s) => s.id === activeId)
     if (exists) return
 
-    // Иначе — выбираем первую активную, или первую вообще
     const firstActive = scenes.find((s) => s.status === 'active') || scenes[0]
     setActiveId(firstActive.id)
   }, [scenes, scenesLoading, universeId, activeId])

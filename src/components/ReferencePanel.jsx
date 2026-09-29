@@ -3,11 +3,13 @@ import Drawer from './Drawer'
 import CharactersPanel from './CharactersPanel'
 import LocationsPanel from './LocationsPanel'
 import ScenesPanel from './ScenesPanel'
+import GameTimePanel from './GameTimePanel'
 import NotificationSettings from './NotificationSettings'
 
 const REFERENCE_TABS = [
   { id: 'characters', label: 'Персонажи', icon: '👤' },
   { id: 'locations',  label: 'Локации',   icon: '📍' },
+  { id: 'time',       label: 'Время',     icon: '⏳' },
 ]
 
 export default function ReferencePanel({
@@ -16,6 +18,8 @@ export default function ReferencePanel({
   charactersApi,
   locationsApi,
   scenesApi,
+  gameTimeApi,
+  cursorX,
   activeSceneId,
   onSelectScene,
   notificationsApi,
@@ -51,13 +55,16 @@ export default function ReferencePanel({
         </div>
 
         {/* Содержимое */}
-        {section === 'scenes' && (
+          {section === 'scenes' && (
           <div className="flex-1 overflow-hidden">
             <ScenesPanel
               api={scenesApi}
               locations={locationsApi.locations}
+              gameTime={gameTimeApi?.times || []}
+              cursorX={cursorX}
               activeId={activeSceneId}
               onSelect={onSelectScene}
+              onGameTimeChanged={() => gameTimeApi?.reload()}
             />
           </div>
         )}
@@ -83,6 +90,12 @@ export default function ReferencePanel({
             <div className="flex-1 overflow-hidden">
               {tab === 'characters' && <CharactersPanel api={charactersApi} />}
               {tab === 'locations'  && <LocationsPanel  api={locationsApi}  />}
+              {tab === 'time'       && (
+                <GameTimePanel
+                  api={gameTimeApi}
+                  scenes={scenesApi?.scenes || []}
+                />
+              )}
             </div>
           </div>
         )}

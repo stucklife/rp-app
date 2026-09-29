@@ -16,13 +16,11 @@ export function useRealtime({ universeId, currentUser, callbacks }) {
     const channel = supabase
       .channel(`rp:${universeId}`)
       // --- Сообщения ---
-            .on(
+      .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
         (payload) => {
-          const msg = payload.new
-          if (msg.author === currentUser) return
-          cbRef.current.onMessage?.(msg)
+          cbRef.current.onMessage?.(payload.new)
         }
       )
       .on(
@@ -60,9 +58,6 @@ export function useRealtime({ universeId, currentUser, callbacks }) {
         { event: '*', schema: 'public', table: 'locations', filter: `universe_id=eq.${universeId}` },
         (payload) => cbRef.current.onLocation?.(payload)
       )
-      .subscribe((status, err) => {
-        console.log('[realtime] status:', status, err || '')
-      })
 
     return () => {
       supabase.removeChannel(channel)

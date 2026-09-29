@@ -1,38 +1,134 @@
 import { useState } from 'react'
+import { dateToX, xToDate, normalizeDate } from '../lib/dates'
 
-export default function SceneForm({ scene, locations, onSave, onDelete, onCancel }) {
+export default function SceneForm({ scene, locations, gameTime, cursorX, onSave, onDelete, onCancel }) {
+  // Достаём game_time текущей сцены
+  const currentTime = scene?.game_time_id
+    ? (gameTime || []).find((t) => t.id === scene.game_time_id)
+    : null
+
   const [form, setForm] = useState({
     title: scene?.title || '',
     description: scene?.description || '',
     location_id: scene?.location_id || '',
     time_label: scene?.time_label || '',
     status: scene?.status || 'active',
+    useManualDates: Boolean(currentTime),
+    start_date_text: currentTime?.start_date_text || '',
+    start_bc: currentTime?.start_bc || false,
+    end_date_text: currentTime?.end_date_text || '',
+    end_bc: currentTime?.end_bc || false,
   })
 
   const set = (patch) => setForm((f) => ({ ...f, ...patch }))
   const isEdit = Boolean(scene?.id)
 
+  // Вычисляем координаты из введённых дат или курсора
+  function computeCoords() {
+    if (!form.useManualDates) {
+      // Из курсора
+      const c = cursorX ?? 0
+      return { start_x: c, end_x: c }
+    }
+    // Из дат
+    let startX = null
+    let endX = null
+
+    if (form.start_date_text) {
+      startX = dateToX(form.start_date_text, form.start_bc)
+    }
+    if (form.end_date_text) {
+      endX = dateToX(form.end_date_text, form.end_bc)
+    }
+
+    // Автозаполнение: если только одно — оба равны
+    if (startX != null && endX == null) endX = startX
+    if (endX != null && startX == null) startX = endX
+
+    if (startX == null && endX == null) {
+      const c = cursorX ?? 0
+      return { start_x: c, end_x: c }
+    }
+    return { start_x: startX, end_x: endX }
+  }
+
   async function handleSave() {
     if (!form.title.trim()) return
+
+    if (form.useManualDates) {
+      const hasStart = form.start_date_text && dateToX(form.start_date_text, form.start_bc) != null
+      const hasEnd = form.end_date_text && dateToX(form.end_date_text, form.end_bc) != null
+
+      if (!hasStart && !hasEnd) {
+        alert('Введите хотя бы одну дату в формате ДД.ММ.ГГГГ')
+        return
+      }
+      if (form.start_date_text && !hasStart) {
+        alert('Неверный формат даты начала (ДД.ММ.ГГГГ)')
+        return
+      }
+      if (form.end_date_text && !hasEnd) {
+        alert('Неверный формат даты окончания (ДД.ММ.ГГГГ)')
+        return
+      }
+
+      const coords = computeCoords()
+      if (coords.end_x < coords.start_x) {
+        alert('Дата окончания не может быть раньше даты начала')
+        return
+      }
+    }
+
+    const coords = computeCoords()
+
+    // Если конец не указан, но есть начало — копируем начало в конец
+    let startText = null
+    let startBc = false
+    let endText = null
+    let endBc = false
+
+    if (form.useManualDates) {
+      startText = form.start_date_text ? normalizeDate(form.start_date_text) : null
+      startBc = form.start_bc || false
+
+      if (form.end_date_text) {
+        endText = normalizeDate(form.end_date_text)
+        endBc = form.end_bc || false
+      } else if (startText) {
+        endText = startText
+        endBc = startBc
+      }
+    }
+
     await onSave({
       title: form.title.trim(),
       description: form.description.trim() || null,
       location_id: form.location_id || null,
       time_label: form.time_label.trim() || null,
       status: form.status,
+      start_x: coords.start_x,
+      end_x: coords.end_x,
+      start_date_text: startText,
+      start_bc: startBc,
+      end_date_text: endText,
+      end_bc: endBc,
     })
   }
 
-  // Связанные события (только для редактирования)
   const linkedEvents = scene?.scene_event_links?.map((l) => l.story_events).filter(Boolean) || []
+
+  // Для отображения: если чекбокс выключен — показываем дату из курсора
+  const cursorDate = (() => {
+    if (cursorX == null) return null
+    const { text, bc } = xToDate(cursorX)
+    if (!text) return null
+    return bc ? `${text} BC` : text
+  })()
 
   return (
     <div className="h-full overflow-y-auto p-4 space-y-4">
       <div className="flex items-center gap-2 mb-2">
-        <button
-          onClick={onCancel}
-          className="text-slate-400 hover:text-white text-sm"
-        >
+        <button onClick={onCancel} className="text-slate-400 hover:text-white text-sm">
           ← Назад
         </button>
         <span className="text-slate-500 text-sm">
@@ -54,8 +150,7 @@ export default function SceneForm({ scene, locations, onSave, onDelete, onCancel
           value={form.description}
           onChange={(e) => set({ description: e.target.value })}
           rows={3}
-          placeholder="Что происходит в этой сцене"
-          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-slate-600 resize-none"
+          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-slate-600"
         />
       </Field>
 
@@ -72,7 +167,7 @@ export default function SceneForm({ scene, locations, onSave, onDelete, onCancel
         </select>
       </Field>
 
-      <Field label="Время (свободный текст)">
+      <Field label="Комментарий ко времени (опционально)">
         <input
           value={form.time_label}
           onChange={(e) => set({ time_label: e.target.value })}
@@ -81,15 +176,94 @@ export default function SceneForm({ scene, locations, onSave, onDelete, onCancel
         />
       </Field>
 
+      <div className="border-t border-slate-800 pt-3 space-y-3">
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={form.useManualDates}
+            onChange={(e) => set({ useManualDates: e.target.checked })}
+            className="w-4 h-4 accent-blue-600"
+          />
+          <span className="text-sm text-slate-300">Указать дату вручную</span>
+        </label>
+
+        {form.useManualDates ? (
+          <>
+            {/* НАЧАЛО */}
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Начало</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={form.start_date_text}
+                  onChange={(e) => set({ start_date_text: maskDate(e.target.value) })}
+                  placeholder="01.03.1800"
+                  maxLength={12}
+                  className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-slate-600"
+                />
+                <label className="flex items-center gap-1 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={form.start_bc}
+                    onChange={(e) => set({ start_bc: e.target.checked })}
+                    className="w-4 h-4 accent-blue-600"
+                  />
+                  <span className="text-xs text-slate-400">до н. э.</span>
+                </label>
+              </div>
+            </div>
+
+            {/* КОНЕЦ */}
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">
+                Окончание (опционально, = началу если пусто)
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={form.end_date_text}
+                  onChange={(e) => set({ end_date_text: maskDate(e.target.value) })}
+                  placeholder="если пусто = как начало"
+                  maxLength={12}
+                  className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-slate-600"
+                />
+                <label className="flex items-center gap-1 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={form.end_bc}
+                    onChange={(e) => set({ end_bc: e.target.checked })}
+                    className="w-4 h-4 accent-blue-600"
+                  />
+                  <span className="text-xs text-slate-400">до н. э.</span>
+                </label>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="text-sm text-slate-400 bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2">
+            📅 {cursorDate ? `≈ ${cursorDate}` : 'Время из курсора'}
+          </div>
+        )}
+
+        {scene?.id && (
+          <details className="text-xs text-slate-500">
+            <summary className="cursor-pointer hover:text-slate-400">Подробнее (отладка)</summary>
+            <div className="mt-2 bg-slate-800 border border-slate-700 rounded-lg p-2 font-mono">
+              game_time_id: {scene.game_time_id ?? '—'}
+            </div>
+          </details>
+        )}
+      </div>
+
       <Field label="Статус">
         <div className="flex gap-2">
           <button
             type="button"
             onClick={() => set({ status: 'active' })}
             className={`flex-1 py-2 rounded-lg text-sm ${
-              form.status === 'active'
-                ? 'bg-blue-600 text-white'
-                : 'bg-slate-800 text-slate-400'
+              form.status === 'active' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'
             }`}
           >
             Активная
@@ -98,9 +272,7 @@ export default function SceneForm({ scene, locations, onSave, onDelete, onCancel
             type="button"
             onClick={() => set({ status: 'archived' })}
             className={`flex-1 py-2 rounded-lg text-sm ${
-              form.status === 'archived'
-                ? 'bg-slate-600 text-white'
-                : 'bg-slate-800 text-slate-400'
+              form.status === 'archived' ? 'bg-slate-600 text-white' : 'bg-slate-800 text-slate-400'
             }`}
           >
             Архив
@@ -110,9 +282,7 @@ export default function SceneForm({ scene, locations, onSave, onDelete, onCancel
 
       {isEdit && linkedEvents.length > 0 && (
         <div>
-          <label className="block text-xs text-slate-400 mb-1">
-            Связанные события истории
-          </label>
+          <label className="block text-xs text-slate-400 mb-1">Связанные события истории</label>
           <div className="bg-slate-800 border border-slate-700 rounded-lg p-2 space-y-1">
             {linkedEvents.map((e) => (
               <div key={e.id} className="text-sm text-slate-300 flex items-center gap-2">
@@ -121,9 +291,6 @@ export default function SceneForm({ scene, locations, onSave, onDelete, onCancel
               </div>
             ))}
           </div>
-          <p className="text-[10px] text-slate-500 mt-1">
-            Редактирование связей будет в следующем шаге
-          </p>
         </div>
       )}
 
@@ -155,4 +322,21 @@ function Field({ label, children }) {
       {children}
     </div>
   )
+}
+
+// Маска: пользователь вводит только цифры, точки ставятся автоматически
+// 01031800 → 01.03.1800
+function maskDate(value) {
+  const digits = String(value || '').replace(/\D/g, '').slice(0, 8)
+  if (!digits) return ''
+
+  let result = ''
+  result += digits.slice(0, 2)
+  if (digits.length >= 3) {
+    result += '.' + digits.slice(2, 4)
+  }
+  if (digits.length >= 5) {
+    result += '.' + digits.slice(4, 8)
+  }
+  return result
 }
