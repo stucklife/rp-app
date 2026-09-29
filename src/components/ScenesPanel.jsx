@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
 import SceneForm from './SceneForm'
 
-export default function ScenesPanel({ api, locations, gameTime, cursorX, activeId, onSelect, onGameTimeChanged }) {
+export default function ScenesPanel({ api, locations, gameTime, cursorX, allStoryEvents, activeId, onSelect, onGameTimeChanged }) {
   const { scenes, create, update, remove } = api
   const [search, setSearch] = useState('')
   const [showArchived, setShowArchived] = useState(false)
   const [editing, setEditing] = useState(null)
+  const [saving, setSaving] = useState(false)
 
   const visible = useMemo(() => {
     return scenes.filter((s) => {
@@ -24,23 +25,29 @@ export default function ScenesPanel({ api, locations, gameTime, cursorX, activeI
   }
 
   async function handleSave(payload) {
-    if (editing.mode === 'new') {
-      const { data, error } = await create(payload)
-      if (error) {
-        alert('Ошибка: ' + error.message)
-        return
+    if (saving) return
+    setSaving(true)
+    try {
+      if (editing.mode === 'new') {
+        const { data, error } = await create(payload)
+        if (error) {
+          alert('Ошибка: ' + error.message)
+          return
+        }
+        if (data?.id) onSelect(data.id)
+        onGameTimeChanged?.()
+      } else {
+        const { data, error } = await update(editing.scene.id, payload)
+        if (error) {
+          alert('Ошибка: ' + error.message)
+          return
+        }
+        onGameTimeChanged?.()
       }
-      if (data?.id) onSelect(data.id)
-      onGameTimeChanged?.()
-    } else {
-      const { data, error } = await update(editing.scene.id, payload)
-      if (error) {
-        alert('Ошибка: ' + error.message)
-        return
-      }
-      onGameTimeChanged?.()
+      setEditing(null)
+    } finally {
+      setSaving(false)
     }
-    setEditing(null)
   }
 
   async function handleDelete() {
@@ -57,9 +64,11 @@ export default function ScenesPanel({ api, locations, gameTime, cursorX, activeI
         locations={locations}
         gameTime={gameTime}
         cursorX={cursorX}
+        allStoryEvents={allStoryEvents}
         onSave={handleSave}
         onDelete={editing.mode === 'edit' ? handleDelete : null}
         onCancel={() => setEditing(null)}
+        saving={saving}
       />
     )
   }

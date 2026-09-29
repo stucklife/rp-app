@@ -13,6 +13,7 @@ import MessageInput from './components/MessageInput'
 import ReferencePanel from './components/ReferencePanel'
 import { useMessages } from './lib/messages'
 import { useGameTime } from './lib/gameTime'
+import { useStoryEvents } from './lib/storyEvents'
 import { useCursor } from './lib/cursor'
 import { roll } from './lib/dice'
 import DiceModal from './components/DiceModal'
@@ -35,6 +36,7 @@ function App() {
   const locationsApi = useLocations(universeId)
   const scenesApi = useScenes(universeId)
   const gameTimeApi = useGameTime(universeId)
+  const storyEventsApi = useStoryEvents(universeId)
   const [cursor, setCursor] = useCursor(user, universeId)
   const { scenes } = scenesApi
     const { activeId: activeSceneId, setActiveId: setActiveSceneId, active: activeScene } =
@@ -135,6 +137,10 @@ function App() {
 
       onLocation: () => {
         locationsApi.reload()
+      },
+
+      onStoryEvent: () => {
+        storyEventsApi.reload()
       },
     },
   })
@@ -277,10 +283,12 @@ function App() {
         locationsApi={locationsApi}
         scenesApi={scenesApi}
         gameTimeApi={gameTimeApi}
+        storyEventsApi={storyEventsApi}
         cursorX={cursor}
         activeSceneId={activeSceneId}
         onSelectScene={setActiveSceneId}
         notificationsApi={notificationsApi}
+        onStoryEventCreated={() => scenesApi.reload()}
       />
       <ToastContainer />
             <DiceModal

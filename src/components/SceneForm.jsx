@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import { dateToX, xToDate, normalizeDate } from '../lib/dates'
 
-export default function SceneForm({ scene, locations, gameTime, cursorX, onSave, onDelete, onCancel }) {
+export default function SceneForm({ scene, locations, gameTime, cursorX, allStoryEvents, onSave, onDelete, onCancel, saving }) {
   // Достаём game_time текущей сцены
   const currentTime = scene?.game_time_id
     ? (gameTime || []).find((t) => t.id === scene.game_time_id)
     : null
+
+  // Связанные события текущей сцены
+  const linkedEventIds = scene?.scene_event_links?.map((l) => l.story_event?.id).filter(Boolean) || []
 
   const [form, setForm] = useState({
     title: scene?.title || '',
@@ -18,6 +21,8 @@ export default function SceneForm({ scene, locations, gameTime, cursorX, onSave,
     start_bc: currentTime?.start_bc || false,
     end_date_text: currentTime?.end_date_text || '',
     end_bc: currentTime?.end_bc || false,
+    useExistingEvents: linkedEventIds.length > 0,
+    storyEventIds: linkedEventIds,
   })
 
   const set = (patch) => setForm((f) => ({ ...f, ...patch }))
@@ -112,10 +117,11 @@ export default function SceneForm({ scene, locations, gameTime, cursorX, onSave,
       start_bc: startBc,
       end_date_text: endText,
       end_bc: endBc,
+      storyEventIds: form.useExistingEvents && form.storyEventIds.length > 0
+        ? form.storyEventIds
+        : null,
     })
   }
-
-  const linkedEvents = scene?.scene_event_links?.map((l) => l.story_events).filter(Boolean) || []
 
   // Для отображения: если чекбокс выключен — показываем дату из курсора
   const cursorDate = (() => {
@@ -280,27 +286,81 @@ export default function SceneForm({ scene, locations, gameTime, cursorX, onSave,
         </div>
       </Field>
 
-      {isEdit && linkedEvents.length > 0 && (
-        <div>
-          <label className="block text-xs text-slate-400 mb-1">Связанные события истории</label>
-          <div className="bg-slate-800 border border-slate-700 rounded-lg p-2 space-y-1">
-            {linkedEvents.map((e) => (
-              <div key={e.id} className="text-sm text-slate-300 flex items-center gap-2">
-                <span>📌</span>
-                <span className="truncate">{e.title}</span>
-              </div>
-            ))}
+      <div className="border-t border-slate-800 pt-3">
+        <label className="flex items-center gap-2 cursor-pointer select-none mb-2">
+          <input
+            type="checkbox"
+            checked={form.useExistingEvents}
+            onChange={(e) => set({ useExistingEvents: e.target.checked })}
+            className="w-4 h-4 accent-blue-600"
+          />
+          <span className="text-sm text-slate-300">
+            Привязать к существующим событиям
+          </span>
+        </label>
+
+        {form.useExistingEvents ? (
+          <div className="bg-slate-800 border border-slate-700 rounded-lg p-2 space-y-2">
+            {form.storyEventIds.map((id) => {
+              const evt = (allStoryEvents || []).find((e) => e.id === id)
+              return (
+                <div key={id} className="flex items-center justify-between gap-2 text-sm">
+                  <span className="truncate text-slate-200">
+                    &lt;e&gt; {evt?.title || '???'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => set({
+                      storyEventIds: form.storyEventIds.filter((x) => x !== id),
+                    })}
+                    className="text-slate-500 hover:text-red-400 text-xs flex-shrink-0"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )
+            })}
+            <div className="flex gap-1 pt-1">
+              <select
+                value=""
+                onChange={(e) => {
+                  const id = e.target.value
+                  if (!id) return
+                  set({
+                    storyEventIds: [...form.storyEventIds, id],
+                  })
+                  e.target.value = ''
+                }}
+                className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs"
+              >
+                <option value="">Добавить событие...</option>
+                {(allStoryEvents || [])
+                  .filter((e) => !form.storyEventIds.includes(e.id))
+                  .map((e) => (
+                    <option key={e.id} value={e.id}>&lt;e&gt; {e.title}</option>
+                  ))}
+              </select>
+            </div>
+            {form.storyEventIds.length === 0 && (
+              <p className="text-[10px] text-yellow-400">
+                ⚠️ Не выбрано ни одного события. При сохранении создастся новое событие-пустышка.
+              </p>
+            )}
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="text-[10px] text-slate-500">
+            При сохранении будет создано новое событие с названием сцены
+          </p>
+        )}
+      </div>
 
       <div className="flex gap-2 pt-2">
         <button
           onClick={handleSave}
-          disabled={!form.title.trim()}
+          disabled={saving || !form.title.trim()}
           className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 text-white py-2 rounded-lg text-sm font-medium"
         >
-          Сохранить
+          {saving ? 'Сохранение...' : 'Сохранить'}
         </button>
         {isEdit && onDelete && (
           <button

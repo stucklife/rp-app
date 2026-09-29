@@ -86,6 +86,7 @@ export function useScenes(universeId) {
       p_start_bc: payload.start_bc || false,
       p_end_date_text: payload.end_date_text || null,
       p_end_bc: payload.end_bc || false,
+      p_story_event_ids: payload.storyEventIds || null,
     }
     
     const { data, error } = await supabase.rpc('create_scene_with_event', rpcPayload)
@@ -100,7 +101,7 @@ export function useScenes(universeId) {
         *,
         locations ( id, name ),
         scene_event_links (
-          story_events ( id, title )
+          story_event:story_events ( id, title )
         )
       `)
       .eq('id', created.scene_id)
@@ -115,7 +116,6 @@ export function useScenes(universeId) {
   async function update(id, patch) {
     let game_time_id = patch.game_time_id
 
-    // Если переданы координаты — ищем/создаём game_time
     if (patch.start_x !== undefined) {
       const startX = patch.start_x ?? 0
       const endX = patch.end_x ?? startX
@@ -153,14 +153,71 @@ export function useScenes(universeId) {
         *,
         locations ( id, name ),
         scene_event_links (
-          story_events ( id, title )
+          story_event:story_events ( id, title )
         )
       `)
       .single()
 
     if (error) return { error }
-    setScenes((prev) => prev.map((s) => (s.id === id ? data : s)))
-    return { data }
+
+    // Обновляем связи со story_events, если переданы
+    if (patch.storyEventIds !== undefined) {
+      if (patch.storyEventIds === null || patch.storyEventIds.length === 0) {
+        // Проверяем, что останется хотя бы одно событие
+        const { data: currentLinks } = await supabase
+          .from('scene_event_links')
+          .select('story_event_id')
+          .eq('scene_id', id)
+
+        if (!currentLinks || currentLinks.length === 0) {
+          // Создаём пустышку
+          const { data: newEvt } = await supabase
+            .from('story_events')
+            .insert({
+              universe_id: universeId,
+              title: patch.title,
+              description: patch.description || null,
+              game_time_id,
+            })
+            .select()
+            .single()
+
+          if (newEvt) {
+            await supabase
+              .from('scene_event_links')
+              .insert({ scene_id: id, story_event_id: newEvt.id })
+          }
+        } else {
+          // Оставляем существующие
+        }
+      } else {
+        // Заменяем весь список связей
+        await supabase.from('scene_event_links').delete().eq('scene_id', id)
+        for (const evtId of patch.storyEventIds) {
+          await supabase
+            .from('scene_event_links')
+            .insert({ scene_id: id, story_event_id: evtId })
+        }
+      }
+    }
+
+    // Перечитываем сцену
+    const { data: fullScene } = await supabase
+      .from('events')
+      .select(`
+        *,
+        locations ( id, name ),
+        scene_event_links (
+          story_event:story_events ( id, title )
+        )
+      `)
+      .eq('id', id)
+      .single()
+
+    if (fullScene) {
+      setScenes((prev) => prev.map((s) => (s.id === id ? fullScene : s)))
+    }
+    return { data: fullScene || data }
   }
 
   async function remove(id) {

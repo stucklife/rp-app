@@ -20,15 +20,13 @@ export function useRealtime({ universeId, currentUser, callbacks }) {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
         (payload) => {
-          console.log('[rt] message INSERT:', payload.new.id, payload.new.content)
-          cbRef.current.onMessage?.(payload.new)
+                    cbRef.current.onMessage?.(payload.new)
         }
       )
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'messages' },
         (payload) => {
-          console.log('[rt] message UPDATE:', payload.new.id, 'deleted:', !!payload.new.deleted_at)
           cbRef.current.onMessageUpdate?.(payload.new)
         }
       )
@@ -60,9 +58,24 @@ export function useRealtime({ universeId, currentUser, callbacks }) {
         { event: '*', schema: 'public', table: 'locations', filter: `universe_id=eq.${universeId}` },
         (payload) => cbRef.current.onLocation?.(payload)
       )
+      // --- События истории ---
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'story_events', filter: `universe_id=eq.${universeId}` },
+        (payload) => cbRef.current.onStoryEvent?.(payload)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'story_event_links' },
+        (payload) => cbRef.current.onStoryEvent?.(payload)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'scene_event_links' },
+        (payload) => cbRef.current.onStoryEvent?.(payload)
+      )
 
     channel.subscribe((status, err) => {
-      console.log('[rt] status:', status, err || '')
     })
 
     return () => {
