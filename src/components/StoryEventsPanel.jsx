@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import StoryEventForm from './StoryEventForm'
+import { xToDate } from '../lib/dates'
 
 const SORT_OPTIONS = [
   { value: 'time', label: 'Внутриигровая дата' },
@@ -7,7 +8,7 @@ const SORT_OPTIONS = [
   { value: 'updated', label: 'Последнее изменение' },
 ]
 
-export default function StoryEventsPanel({ api, allScenes, onEventCreated }) {
+export default function StoryEventsPanel({ api, allScenes, locations, onEventCreated }) {
   const {
     events = [],
     links = [],
@@ -23,15 +24,34 @@ export default function StoryEventsPanel({ api, allScenes, onEventCreated }) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all') // all | global | local
   const [sort, setSort] = useState('time')
+  const [locationFilter, setLocationFilter] = useState('')
   const [editing, setEditing] = useState(null)
 
   const safeScenes = Array.isArray(allScenes) ? allScenes : []
+  const safeLocations = Array.isArray(locations) ? locations : []
+
+  // Map: scene_id → location_id. Нужен, чтобы быстро фильтровать события по локации сцен.
+  const sceneLocationMap = useMemo(() => {
+    const m = new Map()
+    for (const s of safeScenes) {
+      m.set(s.id, s.location_id || null)
+    }
+    return m
+  }, [safeScenes])
 
   const sorted = useMemo(() => {
     const list = (events || []).filter((e) => {
       if (filter === 'global' && !e.is_global) return false
       if (filter === 'local' && e.is_global) return false
       if (search && !e.title.toLowerCase().includes(search.toLowerCase())) return false
+
+      if (locationFilter) {
+        // Событие проходит, если хотя бы одна его сцена — в выбранной локации
+        const scenesOfEvent = e.scene_event_links?.map((sel) => sel.scene).filter(Boolean) || []
+        const match = scenesOfEvent.some((s) => sceneLocationMap.get(s.id) === locationFilter)
+        if (!match) return false
+      }
+
       return true
     })
 
@@ -48,7 +68,7 @@ export default function StoryEventsPanel({ api, allScenes, onEventCreated }) {
     })
 
     return list
-  }, [events, filter, search, sort])
+  }, [events, filter, search, sort, locationFilter, sceneLocationMap])
 
   function openNew() {
     setEditing({ mode: 'new' })
@@ -98,10 +118,6 @@ export default function StoryEventsPanel({ api, allScenes, onEventCreated }) {
         onSave={handleSave}
         onDelete={editing.mode === 'edit' ? handleDelete : null}
         onCancel={() => setEditing(null)}
-        onLinkEvents={linkEvents}
-        onUnlinkEvents={unlinkEvents}
-        onLinkScene={linkScene}
-        onUnlinkScene={unlinkScene}
       />
     )
   }
@@ -141,6 +157,17 @@ export default function StoryEventsPanel({ api, allScenes, onEventCreated }) {
             </button>
           ))}
         </div>
+
+        <select
+          value={locationFilter}
+          onChange={(e) => setLocationFilter(e.target.value)}
+          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs"
+        >
+          <option value="">Все локации</option>
+          {safeLocations.map((l) => (
+            <option key={l.id} value={l.id}>{l.name}</option>
+          ))}
+        </select>
 
         <select
           value={sort}
@@ -203,12 +230,24 @@ import { displayRange } from '../lib/dates'
 
 function formatTimeRange(gt) {
   if (!gt) return '—'
-  return displayRange(
-    gt.start_x,
-    gt.end_x,
-    gt.start_date_text,
-    gt.start_bc,
-    gt.end_date_text,
-    gt.end_bc
-  )
+
+  const hasStart = Boolean(gt.start_date_text)
+  const hasEnd = Boolean(gt.end_date_text)
+
+  // Обе даты — интервал
+  if (hasStart && hasEnd) {
+    const s = gt.start_bc ? `${gt.start_date_text} BC` : gt.start_date_text
+    const e = gt.end_bc ? `${gt.end_date_text} BC` : gt.end_date_text
+    return s === e ? s : `${s} — ${e}`
+  }
+
+  // Только start — одна дата
+  if (hasStart) {
+    return gt.start_bc ? `${gt.start_date_text} BC` : gt.start_date_text
+  }
+
+  // Ничего — "приблизительно" из координат
+  const { text, bc } = xToDate(gt.start_x)
+  if (!text) return '—'
+  return `≈ ${bc ? text + ' BC' : text}`
 }

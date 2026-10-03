@@ -164,41 +164,64 @@ const { data, error } = await supabase
 
     // Обновляем связи со story_events, если переданы
     if (patch.storyEventIds !== undefined) {
-      if (patch.storyEventIds === null || patch.storyEventIds.length === 0) {
-        // Проверяем, что останется хотя бы одно событие
-        const { data: currentLinks } = await supabase
+      // 1. Текущие связи из БД
+      const { data: currentLinks, error: curErr } = await supabase
+        .from('scene_event_links')
+        .select('story_event_id')
+        .eq('scene_id', id)
+
+      if (curErr) return { error: curErr }
+
+      const currentIds = new Set((currentLinks || []).map((l) => l.story_event_id))
+
+      // 2. Что должно быть (null или [] = ничего; тогда возможно создание пустышки)
+      const desiredIds = new Set(
+        Array.isArray(patch.storyEventIds) ? patch.storyEventIds : []
+      )
+
+      // 3. Считаем разницу
+      const toAdd = [...desiredIds].filter((x) => !currentIds.has(x))
+      const toRemove = [...currentIds].filter((x) => !desiredIds.has(x))
+
+      // 4. Удаляем только лишние
+      if (toRemove.length > 0) {
+        const { error: rmErr } = await supabase
           .from('scene_event_links')
-          .select('story_event_id')
+          .delete()
           .eq('scene_id', id)
+          .in('story_event_id', toRemove)
 
-        if (!currentLinks || currentLinks.length === 0) {
-          // Создаём пустышку
-          const { data: newEvt } = await supabase
-            .from('story_events')
-            .insert({
-              universe_id: universeId,
-              title: patch.title,
-              description: patch.description || null,
-              game_time_id,
-            })
-            .select()
-            .single()
+        if (rmErr) return { error: rmErr }
+      }
 
-          if (newEvt) {
-            await supabase
-              .from('scene_event_links')
-              .insert({ scene_id: id, story_event_id: newEvt.id })
-          }
-        } else {
-          // Оставляем существующие
-        }
-      } else {
-        // Заменяем весь список связей
-        await supabase.from('scene_event_links').delete().eq('scene_id', id)
-        for (const evtId of patch.storyEventIds) {
+      // 5. Добавляем только новые
+      if (toAdd.length > 0) {
+        const rows = toAdd.map((evtId) => ({ scene_id: id, story_event_id: evtId }))
+        const { error: addErr } = await supabase
+          .from('scene_event_links')
+          .insert(rows)
+
+        if (addErr) return { error: addErr }
+      }
+
+      // 6. Особый случай: сцена осталась совсем без событий — создаём пустышку
+      //    (срабатывает, если desiredIds пуст и toRemove убрал всё)
+      if (desiredIds.size === 0 && currentIds.size > 0 && toAdd.length === 0) {
+        const { data: newEvt } = await supabase
+          .from('story_events')
+          .insert({
+            universe_id: universeId,
+            title: patch.title,
+            description: patch.description || null,
+            game_time_id: game_time_id ?? null,
+          })
+          .select()
+          .single()
+
+        if (newEvt) {
           await supabase
             .from('scene_event_links')
-            .insert({ scene_id: id, story_event_id: evtId })
+            .insert({ scene_id: id, story_event_id: newEvt.id })
         }
       }
     }
@@ -223,12 +246,91 @@ const { data, error } = await supabase
   }
 
   async function remove(id) {
+    // 1. Собираем данные сцены до удаления
+    const { data: sceneRow, error: sceneErr } = await supabase
+      .from('events')
+      .select('game_time_id')
+      .eq('id', id)
+      .maybeSingle()
+
+    if (sceneErr) return { error: sceneErr }
+
+    const { data: linkedEvents, error: linkErr } = await supabase
+      .from('scene_event_links')
+      .select('story_event_id')
+      .eq('scene_id', id)
+
+    if (linkErr) return { error: linkErr }
+
+    const storyEventIds = (linkedEvents || []).map((l) => l.story_event_id)
+
+    // 2. Удаляем связи этой сцены с событиями (жёстко)
+    const { error: unlinkErr } = await supabase
+      .from('scene_event_links')
+      .delete()
+      .eq('scene_id', id)
+
+    if (unlinkErr) return { error: unlinkErr }
+
+    // 3. Soft-delete сцены
     const { error } = await supabase
       .from('events')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', id)
 
     if (error) return { error }
+
+    // 4. Проверяем каждое связанное событие — если больше не привязано к живым сценам,
+    //    soft-delete его
+    for (const evtId of storyEventIds) {
+      const { data: stillLinked } = await supabase
+        .from('scene_event_links')
+        .select(`
+          scene:scene_id ( id, deleted_at )
+        `)
+        .eq('story_event_id', evtId)
+
+      const aliveScenes = (stillLinked || [])
+        .map((l) => l.scene)
+        .filter((s) => s && s.deleted_at === null)
+
+      if (aliveScenes.length === 0) {
+        await supabase
+          .from('story_events')
+          .update({ deleted_at: new Date().toISOString() })
+          .eq('id', evtId)
+      }
+    }
+
+    // 5. Проверяем game_time — если больше никем не используется, soft-delete
+    if (sceneRow?.game_time_id) {
+      const gtId = sceneRow.game_time_id
+
+      const { data: eventsUsing } = await supabase
+        .from('events')
+        .select('id')
+        .eq('game_time_id', gtId)
+        .is('deleted_at', null)
+        .limit(1)
+
+      const { data: storyUsing } = await supabase
+        .from('story_events')
+        .select('id')
+        .eq('game_time_id', gtId)
+        .is('deleted_at', null)
+        .limit(1)
+
+      const busyByEvents = eventsUsing && eventsUsing.length > 0
+      const busyByStory = storyUsing && storyUsing.length > 0
+
+      if (!busyByEvents && !busyByStory) {
+        await supabase
+          .from('game_time')
+          .update({ deleted_at: new Date().toISOString() })
+          .eq('id', gtId)
+      }
+    }
+
     setScenes((prev) => prev.filter((s) => s.id !== id))
     return {}
   }

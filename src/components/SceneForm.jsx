@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { dateToX, xToDate, normalizeDate } from '../lib/dates'
+import DatePicker from './DatePicker'
 
 export default function SceneForm({ scene, locations, gameTime, cursorX, allStoryEvents, onSave, onDelete, onCancel, saving }) {
   // Достаём game_time текущей сцены: сначала из самой сцены (после Патча 1),
@@ -15,20 +16,64 @@ export default function SceneForm({ scene, locations, gameTime, cursorX, allStor
     .map((l) => l.story_event?.id)
     .filter(Boolean)
 
+  // Если ручных дат нет — берём даты из курсора (для отображения в полях)
+  const cursorDateInfo = (() => {
+    if (cursorX == null) return { text: '', bc: false }
+    const d = xToDate(cursorX)
+    return { text: d.text || '', bc: d.bc || false }
+  })()
+
+  const initialUseManual = Boolean(currentTime)
+  const initialStartText = currentTime?.start_date_text || cursorDateInfo.text || ''
+  const initialStartBc   = currentTime?.start_bc ?? cursorDateInfo.bc ?? false
+  const initialEndText   = currentTime?.end_date_text || cursorDateInfo.text || ''
+  const initialEndBc     = currentTime?.end_bc ?? cursorDateInfo.bc ?? false
+
   const [form, setForm] = useState({
     title: scene?.title || '',
     description: scene?.description || '',
     location_id: scene?.location_id || '',
     time_label: scene?.time_label || '',
     status: scene?.status || 'active',
-    useManualDates: Boolean(currentTime),
-    start_date_text: currentTime?.start_date_text || '',
-    start_bc: currentTime?.start_bc || false,
-    end_date_text: currentTime?.end_date_text || '',
-    end_bc: currentTime?.end_bc || false,
+    useManualDates: initialUseManual,
+    start_date_text: initialStartText,
+    start_bc: initialStartBc,
+    end_date_text: initialEndText,
+    end_bc: initialEndBc,
     useExistingEvents: linkedEventIds.length > 0,
     storyEventIds: linkedEventIds,
   })
+
+  // Синхронизация формы при асинхронной подгрузке scene.game_time и scene_event_links
+  useEffect(() => {
+    if (!scene?.id) return
+    setForm((f) => ({
+      ...f,
+      title: scene.title || '',
+      description: scene.description || '',
+      location_id: scene.location_id || '',
+      time_label: scene.time_label || '',
+      status: scene.status || 'active',
+      useManualDates: Boolean(currentTime),
+      start_date_text: currentTime?.start_date_text || cursorDateInfo.text || '',
+      start_bc: currentTime?.start_bc ?? cursorDateInfo.bc ?? false,
+      end_date_text: currentTime?.end_date_text || cursorDateInfo.text || '',
+      end_bc: currentTime?.end_bc ?? cursorDateInfo.bc ?? false,
+      useExistingEvents: linkedEventIds.length > 0,
+      storyEventIds: linkedEventIds,
+    }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    scene?.id,
+    currentTime?.id,
+    currentTime?.start_date_text,
+    currentTime?.start_bc,
+    currentTime?.end_date_text,
+    currentTime?.end_bc,
+    cursorDateInfo.text,
+    cursorDateInfo.bc,
+    linkedEventIds.join(','),
+  ])
 
   const set = (patch) => setForm((f) => ({ ...f, ...patch }))
   const isEdit = Boolean(scene?.id)
@@ -128,14 +173,6 @@ export default function SceneForm({ scene, locations, gameTime, cursorX, allStor
     })
   }
 
-  // Для отображения: если чекбокс выключен — показываем дату из курсора
-  const cursorDate = (() => {
-    if (cursorX == null) return null
-    const { text, bc } = xToDate(cursorX)
-    if (!text) return null
-    return bc ? `${text} BC` : text
-  })()
-
   return (
     <div className="h-full overflow-y-auto p-4 space-y-4">
       <div className="flex items-center gap-2 mb-2">
@@ -198,63 +235,73 @@ export default function SceneForm({ scene, locations, gameTime, cursorX, allStor
           <span className="text-sm text-slate-300">Указать дату вручную</span>
         </label>
 
-        {form.useManualDates ? (
-          <>
-            {/* НАЧАЛО */}
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Начало</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={form.start_date_text}
-                  onChange={(e) => set({ start_date_text: maskDate(e.target.value) })}
-                  placeholder="01.03.1800"
-                  maxLength={12}
-                  className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-slate-600"
-                />
-                <label className="flex items-center gap-1 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={form.start_bc}
-                    onChange={(e) => set({ start_bc: e.target.checked })}
-                    className="w-4 h-4 accent-blue-600"
-                  />
-                  <span className="text-xs text-slate-400">до н. э.</span>
-                </label>
-              </div>
+        {/* НАЧАЛО */}
+        <div>
+          <label className="block text-xs text-slate-400 mb-1">Начало</label>
+          <div className="flex items-start gap-2">
+            <div className="flex-1">
+              <DatePicker
+                value={form.start_date_text}
+                bc={form.start_bc}
+                cursorX={cursorX}
+                onChange={({ text, bc }) => set({
+                  start_date_text: maskDate(text),
+                  start_bc: bc,
+                  useManualDates: true,
+                })}
+              />
             </div>
+            <label className="flex items-center gap-1 cursor-pointer select-none pt-2">
+              <input
+                type="checkbox"
+                checked={form.start_bc}
+                onChange={(e) => set({
+                  start_bc: e.target.checked,
+                  useManualDates: true,
+                })}
+                className="w-4 h-4 accent-blue-600"
+              />
+              <span className="text-xs text-slate-400">до н. э.</span>
+            </label>
+          </div>
+        </div>
 
-            {/* КОНЕЦ */}
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">
-                Окончание (опционально, = началу если пусто)
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={form.end_date_text}
-                  onChange={(e) => set({ end_date_text: maskDate(e.target.value) })}
-                  placeholder="если пусто = как начало"
-                  maxLength={12}
-                  className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-slate-600"
-                />
-                <label className="flex items-center gap-1 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={form.end_bc}
-                    onChange={(e) => set({ end_bc: e.target.checked })}
-                    className="w-4 h-4 accent-blue-600"
-                  />
-                  <span className="text-xs text-slate-400">до н. э.</span>
-                </label>
-              </div>
+        {/* КОНЕЦ */}
+        <div>
+          <label className="block text-xs text-slate-400 mb-1">
+            Окончание (опционально, = началу если пусто)
+          </label>
+          <div className="flex items-start gap-2">
+            <div className="flex-1">
+              <DatePicker
+                value={form.end_date_text}
+                bc={form.end_bc}
+                cursorX={cursorX}
+                onChange={({ text, bc }) => set({
+                  end_date_text: maskDate(text),
+                  end_bc: bc,
+                  useManualDates: true,
+                })}
+              />
             </div>
-          </>
-        ) : (
-          <div className="text-sm text-slate-400 bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2">
-            📅 {cursorDate ? `≈ ${cursorDate}` : 'Время из курсора'}
+            <label className="flex items-center gap-1 cursor-pointer select-none pt-2">
+              <input
+                type="checkbox"
+                checked={form.end_bc}
+                onChange={(e) => set({
+                  end_bc: e.target.checked,
+                  useManualDates: true,
+                })}
+                className="w-4 h-4 accent-blue-600"
+              />
+              <span className="text-xs text-slate-400">до н. э.</span>
+            </label>
+          </div>
+        </div>
+
+        {!form.useManualDates && (
+          <div className="text-xs text-slate-500 italic">
+            Даты соответствуют курсору. Изменение поля переключит в ручной режим.
           </div>
         )}
 

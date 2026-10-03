@@ -14,6 +14,7 @@ export default function MessageInput({
   onDiceRoll,
 }) {
   const [text, setText] = useState('')
+  const [narrMode, setNarrMode] = useState(false)
 
   const handleSubmit = (e) => {
     if (e) e.preventDefault()
@@ -29,7 +30,25 @@ export default function MessageInput({
         setText('')
         return
       }
-      // Формула неверная — не отправляем, пусть пользователь поправит
+      return
+    }
+
+    // Slash-команда: /narr <текст> — нарратив
+    const narrMatch = trimmed.match(/^\/narr\s+(.+)$/i)
+    if (narrMatch) {
+      const narrText = narrMatch[1].trim()
+      if (narrText) {
+        onSend(narrText, { isNarration: true })
+        setText('')
+      }
+      return
+    }
+
+    // Кнопка «Нарратив» активна — отправляем как нарратив
+    if (narrMode) {
+      onSend(trimmed, { isNarration: true })
+      setText('')
+      setNarrMode(false)
       return
     }
 
@@ -80,13 +99,31 @@ export default function MessageInput({
 
       <div className="flex items-end gap-2">
         <div className="flex-1 min-w-0">
-          <div className="mb-1">
+          <div className="mb-1 flex items-center gap-2">
             <CharacterPicker
               characters={characters}
               value={characterId}
               onChange={onCharacterChange}
               compact
             />
+            <button
+              type="button"
+              onClick={() => setNarrMode((v) => !v)}
+              disabled={disabled}
+              className={`rounded px-2 py-0.5 text-xs transition ${
+                narrMode
+                  ? 'bg-purple-700 hover:bg-purple-600 text-white'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-400'
+              } disabled:opacity-50`}
+              title="Режим нарратива"
+            >
+              📖
+            </button>
+            {narrMode && (
+              <span className="text-[10px] text-purple-400 italic">
+                режим нарратива
+              </span>
+            )}
           </div>
           <textarea
             value={text}

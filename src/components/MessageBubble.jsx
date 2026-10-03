@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { AUTHOR_COLORS, AUTHOR_LABELS, AUTHOR_BG } from '../lib/constants'
+import { parseActions } from '../lib/markup'
 import MessageQuote from './MessageQuote'
 import CharacterPicker from './CharacterPicker'
 import DiceRollMessage from './DiceRollMessage'
@@ -19,6 +20,7 @@ export default function MessageBubble({
   onSaveEdit,
   onContextMenu,
   onJumpToMessage,
+  searchQuery,
 }) {
   const {
     author,
@@ -65,7 +67,18 @@ export default function MessageBubble({
       </div>
     )
   }
-    if (kind === 'dice_roll') {
+
+  if (kind === 'narration') {
+    return (
+      <div className="px-4 py-2">
+        <div className="max-w-[85%] sm:max-w-[70%] mx-auto text-center text-base italic text-slate-400 whitespace-pre-wrap break-words">
+          <RenderActions text={content || ''} mode="narration" searchQuery={searchQuery} />
+        </div>
+      </div>
+    )
+  }
+
+  if (kind === 'dice_roll') {
     return (
       <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
         <div
@@ -169,11 +182,78 @@ export default function MessageBubble({
               </span>
             </div>
             <div className="text-sm whitespace-pre-wrap break-words">
-              {content}
+              <RenderActions text={content || ''} mode="chat" searchQuery={searchQuery} />
             </div>
           </>
         )}
       </div>
     </div>
+  )
+}
+
+// Рендер текста с поддержкой **действий** и подсветкой совпадений.
+// mode:
+//   'chat'      — действие серым курсивом (обычный чат)
+//   'narration' — действие чуть светлее основного текста (нарратив серый)
+// searchQuery — если задан, совпадения подсвечиваются светло-жёлтым
+function RenderActions({ text, mode = 'chat', searchQuery }) {
+  const parts = parseActions(text)
+  const actionClass =
+    mode === 'narration'
+      ? 'italic text-slate-300'
+      : 'italic text-slate-400'
+
+  // Разбивает строку на подстроки с флагом matched
+  function splitByMatch(str) {
+    if (!searchQuery || !searchQuery.trim()) return [{ text: str, matched: false }]
+    const q = searchQuery.toLowerCase()
+    const s = str.toLowerCase()
+    const result = []
+    let cursor = 0
+    while (cursor < str.length) {
+      const idx = s.indexOf(q, cursor)
+      if (idx === -1) {
+        result.push({ text: str.slice(cursor), matched: false })
+        break
+      }
+      if (idx > cursor) {
+        result.push({ text: str.slice(cursor, idx), matched: false })
+      }
+      result.push({ text: str.slice(idx, idx + q.length), matched: true })
+      cursor = idx + q.length
+    }
+    return result
+  }
+
+  function renderPart(str, keyPrefix, className) {
+    const pieces = splitByMatch(str)
+    return pieces.map((piece, i) => {
+      if (piece.matched) {
+        return (
+          <mark
+            key={`${keyPrefix}-${i}`}
+            className="bg-yellow-200/30 text-inherit rounded-sm px-0.5"
+          >
+            {piece.text}
+          </mark>
+        )
+      }
+      return <span key={`${keyPrefix}-${i}`}>{piece.text}</span>
+    })
+  }
+
+  return (
+    <>
+      {parts.map((p, i) => {
+        if (typeof p === 'string') {
+          return <span key={i}>{renderPart(p, `s-${i}`, '')}</span>
+        }
+        return (
+          <span key={i} className={actionClass}>
+            {renderPart(p.italic, `a-${i}`, actionClass)}
+          </span>
+        )
+      })}
+    </>
   )
 }

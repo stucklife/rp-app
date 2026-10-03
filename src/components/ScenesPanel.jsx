@@ -5,6 +5,7 @@ export default function ScenesPanel({ api, locations, gameTime, cursorX, allStor
   const { scenes, create, update, remove } = api
   const [search, setSearch] = useState('')
   const [showArchived, setShowArchived] = useState(false)
+  const [locationFilter, setLocationFilter] = useState('')
   const [editing, setEditing] = useState(null)
   const [saving, setSaving] = useState(false)
 
@@ -12,9 +13,10 @@ export default function ScenesPanel({ api, locations, gameTime, cursorX, allStor
     return scenes.filter((s) => {
       if (!showArchived && s.status !== 'active') return false
       if (search && !s.title.toLowerCase().includes(search.toLowerCase())) return false
+      if (locationFilter && s.location_id !== locationFilter) return false
       return true
     })
-  }, [scenes, search, showArchived])
+  }, [scenes, search, showArchived, locationFilter])
 
   function openNew() {
     setEditing({ mode: 'new' })
@@ -90,6 +92,17 @@ export default function ScenesPanel({ api, locations, gameTime, cursorX, allStor
             + Новая
           </button>
         </div>
+
+        <select
+          value={locationFilter}
+          onChange={(e) => setLocationFilter(e.target.value)}
+          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-slate-600"
+        >
+          <option value="">Все локации</option>
+          {(locations || []).map((l) => (
+            <option key={l.id} value={l.id}>{l.name}</option>
+          ))}
+        </select>
 
         <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-slate-400">
           <input

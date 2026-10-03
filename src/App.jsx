@@ -39,17 +39,23 @@ function App() {
   const storyEventsApi = useStoryEvents(universeId)
   const [cursor, setCursor] = useCursor(user, universeId)
   const { scenes } = scenesApi
-    const { activeId: activeSceneId, setActiveId: setActiveSceneId, active: activeScene } =
+  const { activeId: activeSceneId, setActiveId: setActiveSceneId, active: activeScene } =
     useActiveScene(universeId, scenes, scenesApi.loading)
+
+  // Сбрасываем поиск при смене сцены
+  useEffect(() => {
+    setSearchQuery('')
+  }, [activeSceneId])
 
   const notificationsApi = useNotificationSettings(user)
 
-   const [characterId, setCharacterId] = useState(() => localStorage.getItem(CHAR_KEY) || null)
+  const [characterId, setCharacterId] = useState(() => localStorage.getItem(CHAR_KEY) || null)
   const [panelOpen, setPanelOpen] = useState(false)
   const [replyTo, setReplyTo] = useState(null)
   const [diceModalOpen, setDiceModalOpen] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
 
   const messagesApi = useMessages(activeSceneId)
   const { messages, loading } = messagesApi
@@ -139,25 +145,31 @@ function App() {
         locationsApi.reload()
       },
 
-      onStoryEvent: () => {
+      onStoryEvent: (payload) => {
         storyEventsApi.reload()
+        // scene_event_links меняет связь событие↔сцена —
+        // нужно перезагрузить и scenes, чтобы SceneForm увидел обновлённые связи
+        if (payload?.table === 'scene_event_links') {
+          scenesApi.reload()
+        }
       },
     },
   })
 
-  async function handleSend(text) {
+  async function handleSend(text, opts = {}) {
     if (!activeSceneId) return
     setSending(true)
     setError(null)
 
-    const character = characters.find((c) => c.id === characterId)
+    const isNarration = opts.isNarration === true
+    const character = isNarration ? null : characters.find((c) => c.id === characterId)
 
     const { data, error } = await supabase
       .from('messages')
       .insert({
         event_id: activeSceneId,
         author: user,
-        kind: 'chat',
+        kind: isNarration ? 'narration' : 'chat',
         character_id: character?.id || null,
         character_name: character?.name || null,
         content: text,
@@ -320,13 +332,20 @@ function App() {
     <UserSelector current={user} onChange={setUser} />
   </div>
 
-  {/* Строка 2: сцена */}
-  <div className="px-3 pb-2 flex items-center gap-1 min-w-0 border-t border-slate-900 pt-1.5">
+  {/* Строка 2: сцена + поиск */}
+  <div className="px-3 pb-2 flex items-center gap-2 min-w-0 border-t border-slate-900 pt-1.5">
     <SceneSelector
       scenes={scenes}
       active={activeScene}
       onSelect={setActiveSceneId}
       onNew={() => setPanelOpen(true)}
+    />
+    <input
+      type="text"
+      value={searchQuery}
+      onChange={(e) => setSearchQuery(e.target.value)}
+      placeholder="Поиск..."
+      className="ml-auto flex-shrink-0 w-32 sm:w-48 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs focus:outline-none focus:border-slate-600"
     />
   </div>
 </header>
@@ -354,17 +373,18 @@ function App() {
               </div>
             </div>
           ) : (
-            <ErrorBoundary>
-              <MessageList
-                messages={messages}
-                currentUser={user}
-                characters={characters}
-                loading={loading}
-                onEditMessage={handleEditMessage}
-                onDeleteMessage={handleDeleteMessage}
-                onQuoteMessage={handleQuoteMessage}
-              />
-            </ErrorBoundary>
+<ErrorBoundary>
+  <MessageList
+    messages={messages}
+    currentUser={user}
+    characters={characters}
+    loading={loading}
+    onEditMessage={handleEditMessage}
+    onDeleteMessage={handleDeleteMessage}
+    onQuoteMessage={handleQuoteMessage}
+    searchQuery={searchQuery}
+  />
+</ErrorBoundary>
           )}
         </main>
 
