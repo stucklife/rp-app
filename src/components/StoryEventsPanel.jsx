@@ -199,14 +199,16 @@ export default function StoryEventsPanel({ api, allScenes, onEventCreated }) {
   )
 }
 
+import { displayRange } from '../lib/dates'
+
 function formatTimeRange(gt) {
   if (!gt) return '—'
-  const s = gt.start_date_text
-    ? (gt.start_bc ? `${gt.start_date_text} BC` : gt.start_date_text)
-    : `x=${gt.start_x}`
-  const e = gt.end_date_text
-    ? (gt.end_bc ? `${gt.end_date_text} BC` : gt.end_date_text)
-    : `x=${gt.end_x}`
-  if (s === e) return s
-  return `${s} — ${e}`
+  return displayRange(
+    gt.start_x,
+    gt.end_x,
+    gt.start_date_text,
+    gt.start_bc,
+    gt.end_date_text,
+    gt.end_bc
+  )
 }

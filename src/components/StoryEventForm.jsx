@@ -318,7 +318,11 @@ function LinkBlock({ title, items, allEvents, currentId, getTitle, onAdd, onRemo
 
   async function handleAdd() {
     if (!selected) return
-    await onAdd(selected)
+    const result = await onAdd(selected)
+    if (result?.error) {
+      alert('Не удалось добавить связь: ' + result.error.message)
+      return
+    }
     setSelected('')
   }
 
@@ -333,6 +337,7 @@ function LinkBlock({ title, items, allEvents, currentId, getTitle, onAdd, onRemo
           <div key={it.link.id} className="flex items-center justify-between gap-2 text-sm">
             <span className="truncate text-slate-200">📌 {getTitle(it.otherId)}</span>
             <button
+              type="button"
               onClick={() => onRemove(it.link)}
               className="text-slate-500 hover:text-red-400 text-xs flex-shrink-0"
             >
@@ -352,6 +357,7 @@ function LinkBlock({ title, items, allEvents, currentId, getTitle, onAdd, onRemo
             ))}
           </select>
           <button
+            type="button"
             onClick={handleAdd}
             disabled={!selected}
             className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white px-2 py-1 rounded text-xs"

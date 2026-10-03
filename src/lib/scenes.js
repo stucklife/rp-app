@@ -48,18 +48,19 @@ export function useScenes(universeId) {
     }
     setLoading(true)
 
-    const { data, error } = await supabase
-      .from('events')
-      .select(`
-        *,
-        locations ( id, name ),
-        scene_event_links (
-          story_events ( id, title )
-        )
-      `)
-      .eq('universe_id', universeId)
-      .is('deleted_at', null)
-      .order('updated_at', { ascending: false })
+const { data, error } = await supabase
+  .from('events')
+  .select(`
+    *,
+    locations ( id, name ),
+    game_time:game_time_id ( id, start_x, end_x, start_date_text, start_bc, end_date_text, end_bc ),
+    scene_event_links (
+      story_event:story_events ( id, title )
+    )
+  `)
+  .eq('universe_id', universeId)
+  .is('deleted_at', null)
+  .order('updated_at', { ascending: false })
 
     if (error) setError(error.message)
     else setScenes(data || [])
@@ -100,6 +101,7 @@ export function useScenes(universeId) {
       .select(`
         *,
         locations ( id, name ),
+        game_time:game_time_id ( id, start_x, end_x, start_date_text, start_bc, end_date_text, end_bc ),
         scene_event_links (
           story_event:story_events ( id, title )
         )
@@ -107,9 +109,9 @@ export function useScenes(universeId) {
       .eq('id', created.scene_id)
       .single()
 
-    if (fullScene) {
-      setScenes((prev) => [fullScene, ...prev])
-    }
+    // Не пушим вручную — realtime onScene → reload() и так обновит список.
+    // Ручной push может дать дубликат, если realtime сработает параллельно.
+    await load()
     return { data: fullScene || { id: created.scene_id } }
   }
 

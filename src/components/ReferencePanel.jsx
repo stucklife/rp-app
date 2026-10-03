@@ -105,12 +105,13 @@ export default function ReferencePanel({
                   scenes={scenesApi?.scenes || []}
                 />
               )}
-              {tab === 'storyEvents' && (
-                <StoryEventsPanel
-                  api={storyEventsApi}
-                  onEventCreated={onStoryEventCreated}
-                />
-              )}
+{tab === 'storyEvents' && (
+  <StoryEventsPanel
+    api={storyEventsApi}
+    allScenes={scenesApi?.scenes || []}
+    onEventCreated={onStoryEventCreated}
+  />
+)}
             </div>
           </div>
         )}

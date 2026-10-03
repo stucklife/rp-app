@@ -2,13 +2,18 @@ import { useState } from 'react'
 import { dateToX, xToDate, normalizeDate } from '../lib/dates'
 
 export default function SceneForm({ scene, locations, gameTime, cursorX, allStoryEvents, onSave, onDelete, onCancel, saving }) {
-  // Достаём game_time текущей сцены
-  const currentTime = scene?.game_time_id
-    ? (gameTime || []).find((t) => t.id === scene.game_time_id)
-    : null
+  // Достаём game_time текущей сцены: сначала из самой сцены (после Патча 1),
+  // затем fallback — поиск по gameTime (на случай, если сцена только что обновлена и
+  // ещё не перечитана с полным select'ом).
+  const currentTime = scene?.game_time
+    || (scene?.game_time_id
+      ? (gameTime || []).find((t) => t.id === scene.game_time_id)
+      : null)
 
   // Связанные события текущей сцены
-  const linkedEventIds = scene?.scene_event_links?.map((l) => l.story_event?.id).filter(Boolean) || []
+  const linkedEventIds = (scene?.scene_event_links || [])
+    .map((l) => l.story_event?.id)
+    .filter(Boolean)
 
   const [form, setForm] = useState({
     title: scene?.title || '',
@@ -65,15 +70,15 @@ export default function SceneForm({ scene, locations, gameTime, cursorX, allStor
       const hasEnd = form.end_date_text && dateToX(form.end_date_text, form.end_bc) != null
 
       if (!hasStart && !hasEnd) {
-        alert('Введите хотя бы одну дату в формате ДД.ММ.ГГГГ')
+        alert('Введите хотя бы одну дату в формате ДД.ММ.ГГГГ (например, 22.11.2222).\nМесяц — от 01 до 12, день — от 01 до 31.')
         return
       }
       if (form.start_date_text && !hasStart) {
-        alert('Неверный формат даты начала (ДД.ММ.ГГГГ)')
+        alert('Неверная дата начала.\nФормат: ДД.ММ.ГГГГ (например, 22.11.2222).\nМесяц — от 01 до 12, день — от 01 до 31.')
         return
       }
       if (form.end_date_text && !hasEnd) {
-        alert('Неверный формат даты окончания (ДД.ММ.ГГГГ)')
+        alert('Неверная дата окончания.\nФормат: ДД.ММ.ГГГГ (например, 22.11.2222).\nМесяц — от 01 до 12, день — от 01 до 31.')
         return
       }
 

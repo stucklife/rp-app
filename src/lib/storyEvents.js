@@ -162,13 +162,67 @@ export function useStoryEvents(universeId) {
   }
 
   async function remove(id) {
+    // 1. Находим сцены, привязанные к этому событию
+    const { data: linkedScenes, error: linkErr } = await supabase
+      .from('scene_event_links')
+      .select('scene_id')
+      .eq('story_event_id', id)
+
+    if (linkErr) return { error: linkErr }
+
+    // 2. Для каждой сцены проверяем: это событие единственное?
+    const scenesNeedingStub = []
+    for (const { scene_id } of linkedScenes || []) {
+      const { data: others, error: othersErr } = await supabase
+        .from('scene_event_links')
+        .select('story_event_id')
+        .eq('scene_id', scene_id)
+        .neq('story_event_id', id)
+
+      if (othersErr) return { error: othersErr }
+      if (!others || others.length === 0) {
+        scenesNeedingStub.push(scene_id)
+      }
+    }
+
+    // 3. Для каждой такой сцены — создаём пустышку и линкуем
+    for (const sceneId of scenesNeedingStub) {
+      const { data: scene } = await supabase
+        .from('events')
+        .select('title, description, game_time_id')
+        .eq('id', sceneId)
+        .maybeSingle()
+
+      if (!scene) continue
+
+      const { data: stub, error: stubErr } = await supabase
+        .from('story_events')
+        .insert({
+          universe_id: universeId,
+          title: scene.title,
+          description: scene.description || null,
+          game_time_id: scene.game_time_id || null,
+        })
+        .select()
+        .single()
+
+      if (stubErr) return { error: stubErr }
+
+      await supabase
+        .from('scene_event_links')
+        .insert({ scene_id: sceneId, story_event_id: stub.id })
+    }
+
+    // 4. Только теперь soft-delete оригинала
     const { error } = await supabase
       .from('story_events')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', id)
 
     if (error) return { error }
+
     setEvents((prev) => prev.filter((e) => e.id !== id))
+    await load()
     return {}
   }
 
@@ -213,44 +267,16 @@ export function useStoryEvents(universeId) {
   }
 
   async function unlinkScene(storyEventId, sceneId) {
-    // Проверяем, что у сцены останется хотя бы одно событие
     const { data: remaining } = await supabase
       .from('scene_event_links')
       .select('story_event_id')
       .eq('scene_id', sceneId)
 
-    if (remaining && remaining.length <= 1) {
-      return { error: { message: 'У сцены должно остаться хотя бы одно событие' } }
-    }
+    const afterRemoval = (remaining || []).filter(
+      (l) => l.story_event_id !== storyEventId
+    )
 
-    const { error } = await supabase
-      .from('scene_event_links')
-      .delete()
-      .eq('story_event_id', storyEventId)
-      .eq('scene_id', sceneId)
-
-    if (error) return { error }
-    await load()
-    return {}
-  }
-
-  async function linkScene(storyEventId, sceneId) {
-    const { error } = await supabase
-      .from('scene_event_links')
-      .insert({ story_event_id: storyEventId, scene_id: sceneId })
-
-    if (error) return { error }
-    await load()
-    return {}
-  }
-
-  async function unlinkScene(storyEventId, sceneId) {
-    const { data: remaining } = await supabase
-      .from('scene_event_links')
-      .select('story_event_id')
-      .eq('scene_id', sceneId)
-
-    if (remaining && remaining.length <= 1) {
+    if (afterRemoval.length === 0) {
       return { error: { message: 'У сцены должно остаться хотя бы одно событие' } }
     }
 
